@@ -181,3 +181,24 @@ class MTKCommunication(QObject):
         self.log.emit(f"Flash du firmware ({scatter_path}) sur {dev.port or dev.identifier}...", "info")
         if callback:
             callback(True, "Flash terminé avec succès.")
+
+    # -----------------------------------------------------------------
+    # Opération Redémarrage
+    # -----------------------------------------------------------------
+    def reboot(self, target_reboot: str = "normal", callback=None):
+        """Redémarre l'appareil connecté vers la cible spécifiée."""
+        if not self._connected or not self._current_device:
+            self.log.emit("Erreur : Aucun appareil connecté pour le redémarrage.", "error")
+            if callback:
+                callback(False, "Aucun appareil connecté.")
+            return
+
+        dev = self._current_device
+        target_id = dev.port or dev.serial_number or dev.identifier
+
+        from core.actions import reboot_device as act_reboot
+        res = act_reboot(dev.mode, target_id, target_reboot=target_reboot, log_callback=self.log.emit)
+
+        if callback:
+            callback(res.success, res.message)
+        return res

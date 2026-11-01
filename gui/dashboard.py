@@ -21,6 +21,7 @@ COLOR_TEXT_MUTED = "#8a92a8"
 COLOR_BORDER = "#2c334a"
 COLOR_SUCCESS = "#2ecc71"
 COLOR_WARNING = "#f1c40f"
+COLOR_ERROR = "#e74c3c"
 COLOR_CYAN = "#00c3ff"
 COLOR_PURPLE = "#a29bfe"
 
@@ -75,12 +76,15 @@ class DashboardTab(QWidget):
 
         self.lbl_proto_label = QLabel("Protocole actif :")
         self.lbl_proto_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        self.lbl_proto_value = QLabel("Scan automatique actif (BROM / Fastboot / Normal)")
+        self.lbl_proto_value = QLabel("Scan automatique actif (BROM / Fastboot / ADB)")
         self.lbl_proto_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
 
         self.lbl_advice_label = QLabel("Recommandation :")
         self.lbl_advice_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        self.lbl_advice_value = QLabel("Connectez l'appareil éteint avec Volume- pour le mode BROM, ou allumez en mode Fastboot.")
+        self.lbl_advice_value = QLabel(
+            "Connectez l'appareil éteint avec Vol- pour le mode BROM, "
+            "ou allumez-le en mode Fastboot / avec Débogage USB activé."
+        )
         self.lbl_advice_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-style: italic;")
 
         details_layout.addWidget(self.lbl_port_label, 0, 0)
@@ -217,16 +221,60 @@ class DashboardTab(QWidget):
         self.lbl_proto_value.setText(dev.protocol or dev.mode_display)
         self.lbl_proto_value.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
 
-        # Conseils contextuels selon le mode
+        # Conseils contextuels précis selon le mode détecté
         if dev.mode == DeviceMode.BROM:
-            self.lbl_advice_value.setText("✅ Mode BROM actif : Parfait pour le déblocage FRP et le flash de firmware.")
+            self.lbl_advice_value.setText(
+                "✅ Mode BROM actif : Parfait pour le déblocage FRP et le flash de firmware."
+            )
             self.lbl_advice_value.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 11px;")
+            self.lbl_advice_value.setToolTip(
+                "L'appareil est connecté en mode BootROM MediaTek.\n"
+                "Toutes les opérations de bas niveau sont disponibles."
+            )
+
         elif dev.mode == DeviceMode.FASTBOOT:
-            self.lbl_advice_value.setText("⚡ Mode Fastboot actif : Prêt pour le déblocage FRP OEM et les commandes bootloader.")
+            self.lbl_advice_value.setText(
+                "⚡ Mode Fastboot actif : Prêt pour le déblocage FRP OEM et les commandes bootloader."
+            )
             self.lbl_advice_value.setStyleSheet(f"color: {COLOR_CYAN}; font-size: 11px;")
-        elif dev.mode == DeviceMode.NORMAL:
-            self.lbl_advice_value.setText("ℹ Mode Normal/AT actif : Pour une opération de flash bas-niveau, éteignez le téléphone et rebranchez.")
+            self.lbl_advice_value.setToolTip(
+                "L'appareil est en mode Fastboot.\n"
+                "Les commandes fastboot erase / getvar sont disponibles."
+            )
+
+        elif dev.mode == DeviceMode.ADB:
+            self.lbl_advice_value.setText(
+                "🔧 Mode ADB actif (Débogage USB confirmé) : Lecture d'infos et commandes ADB disponibles."
+            )
             self.lbl_advice_value.setStyleSheet(f"color: {COLOR_PURPLE}; font-size: 11px;")
+            self.lbl_advice_value.setToolTip(
+                "Le débogage USB est activé et autorisé sur cet appareil.\n"
+                "Vous pouvez lire les informations système.\n"
+                "Pour le FRP ou le flash, éteignez le téléphone et passez en mode BROM/Fastboot."
+            )
+
+        elif dev.mode == DeviceMode.USB_NORMAL:
+            self.lbl_advice_value.setText(
+                "⚠ Appareil branché mais ADB / BROM inactif. "
+                "Pour le FRP, veuillez éteindre l'appareil et suivre l'assistant de connexion."
+            )
+            self.lbl_advice_value.setStyleSheet(f"color: {COLOR_WARNING}; font-size: 11px; font-style: italic;")
+            self.lbl_advice_value.setToolTip(
+                "Le téléphone est branché en USB mais aucun protocole de debug n'est actif.\n\n"
+                "► Pour le FRP / Flash : éteignez le téléphone, maintenez Vol- et branchez le câble.\n"
+                "► Pour ADB : activez le Débogage USB dans Paramètres > Options développeur.\n"
+                "► Pour Fastboot : éteignez le téléphone, maintenez Vol+ et branchez."
+            )
+
+        elif dev.mode == DeviceMode.NORMAL:
+            self.lbl_advice_value.setText(
+                "ℹ Mode Normal/AT actif : Pour une opération de flash bas-niveau, éteignez le téléphone et rebranchez."
+            )
+            self.lbl_advice_value.setStyleSheet(f"color: {COLOR_PURPLE}; font-size: 11px;")
+            self.lbl_advice_value.setToolTip(
+                "Interface AT/Modem MediaTek détectée.\n"
+                "Pour les opérations de flash ou FRP, passez en mode BROM ou Fastboot."
+            )
 
     def on_device_disconnected(self):
         """Appelé quand l'appareil est déconnecté."""
@@ -236,15 +284,19 @@ class DashboardTab(QWidget):
         self.badge_mode.setText("EN ATTENTE")
         self.badge_mode.setStyleSheet(self._badge_style(COLOR_TEXT_MUTED))
 
-        self.lbl_headline.setText("En attente de connexion d'un appareil...")
+        self.lbl_headline.setText("En attente de connexion d'un appareil…")
         self.lbl_port_value.setText("Aucun")
         self.lbl_port_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
 
-        self.lbl_proto_value.setText("Scan automatique actif (BROM / Fastboot / Normal)")
+        self.lbl_proto_value.setText("Scan automatique actif (BROM / Fastboot / ADB)")
         self.lbl_proto_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
 
-        self.lbl_advice_value.setText("Connectez l'appareil éteint avec Volume- pour le mode BROM, ou allumez en mode Fastboot.")
+        self.lbl_advice_value.setText(
+            "Connectez l'appareil éteint avec Vol- pour le mode BROM, "
+            "ou allumez-le en mode Fastboot / avec Débogage USB activé."
+        )
         self.lbl_advice_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-style: italic;")
+        self.lbl_advice_value.setToolTip("")
 
     def _launch_frp_action(self):
         """Bascule sur l'onglet FRP et déclenche l'assistant de déblocage FRP."""

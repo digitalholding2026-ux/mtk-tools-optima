@@ -1,105 +1,210 @@
 # -*- coding: utf-8 -*-
 """
-Onglet Informations Appareil - Affichage des détails du périphérique MediaTek connecté.
-S'actualise automatiquement lors de la détection d'un appareil (BROM, Fastboot, Normal/AT).
+Onglet 1 : [Infos & Diagnostic] pour Optima MTK Tool.
+Affiche les spécifications de l'appareil dans une grille moderne et claire :
+  - Modèle / Nom
+  - Chipset / Processeur MediaTek
+  - IMEI / Numéro de série
+  - Version Android
+Bouton unique ergonomique pour la lecture instantanée ou guidée des informations.
 """
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QGridLayout, QPushButton, QTextEdit
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
+    QPushButton, QTextEdit, QFrame, QGroupBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from core.detector import ConnectedDevice, DeviceMode
 
-COLOR_BG_TAB = "#1e2332"
-COLOR_BG_PANEL = "#161a28"
+# Palette de couleurs Optima Telecom
+COLOR_BG_TAB = "#0f111a"
+COLOR_BG_CARD = "#161a28"
+COLOR_BG_INPUT = "#10131e"
 COLOR_ACCENT = "#00a2ff"
+COLOR_ACCENT_HOVER = "#0088cc"
 COLOR_TEXT = "#e8eaf2"
 COLOR_TEXT_MUTED = "#8a92a8"
-COLOR_BORDER = "#2c334a"
+COLOR_BORDER = "#252c40"
 COLOR_SUCCESS = "#2ecc71"
 COLOR_CYAN = "#00c3ff"
 COLOR_WARNING = "#f1c40f"
+COLOR_PURPLE = "#a29bfe"
+
+
+class SpecCard(QFrame):
+    """Carte d'affichage moderne pour une spécification technique."""
+
+    def __init__(self, title: str, default_value: str = "—", icon: str = "📱", parent=None):
+        super().__init__(parent)
+        self.setObjectName("specCard")
+        self.setFixedHeight(82)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(14)
+
+        # Icône visuelle
+        self.lbl_icon = QLabel(icon)
+        self.lbl_icon.setFont(QFont("Segoe UI Emoji", 20))
+        self.lbl_icon.setFixedWidth(36)
+        self.lbl_icon.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lbl_icon)
+
+        # Textes (Libellé + Valeur)
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(3)
+
+        self.lbl_title = QLabel(title.upper())
+        self.lbl_title.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 10px; font-weight: bold; letter-spacing: 0.5px;")
+
+        self.lbl_val = QLabel(default_value)
+        self.lbl_val.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 13px; font-weight: bold;")
+        self.lbl_val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        text_layout.addWidget(self.lbl_title)
+        text_layout.addWidget(self.lbl_val)
+        layout.addLayout(text_layout)
+        layout.addStretch()
+
+        self.setStyleSheet(f"""
+            QFrame#specCard {{
+                background-color: {COLOR_BG_CARD};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 8px;
+            }}
+            QFrame#specCard:hover {{
+                border-color: {COLOR_ACCENT}88;
+                background-color: #1a1f30;
+            }}
+        """)
+
+    def set_value(self, val: str, color: str = COLOR_TEXT):
+        """Met à jour la valeur affichée avec une couleur optionnelle."""
+        self.lbl_val.setText(val or "—")
+        self.lbl_val.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: bold;")
 
 
 class DeviceInfoTab(QWidget):
-    """Onglet Informations Appareil avec actualisation automatique."""
+    """Onglet [Infos & Diagnostic] de l'application Optima MTK Tool."""
 
     def __init__(self, mtk_comm, parent=None):
         super().__init__(parent)
         self.mtk_comm = mtk_comm
         self.device_connected = False
         self.current_device: ConnectedDevice = None
-        self.current_port = None
 
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 25, 30, 25)
-        layout.setSpacing(20)
+        layout.setContentsMargins(25, 20, 25, 20)
+        layout.setSpacing(16)
 
-        # --- Informations appareil ---
-        info_group = QGroupBox("Informations du périphérique connecté")
-        info_layout = QGridLayout(info_group)
-        info_layout.setHorizontalSpacing(20)
-        info_layout.setVerticalSpacing(12)
+        # ── 1. Barre d'action supérieure avec bouton unique ───────────
+        action_bar = QFrame()
+        action_bar.setObjectName("actionBar")
+        action_layout = QHBoxLayout(action_bar)
+        action_layout.setContentsMargins(18, 14, 18, 14)
+        action_layout.setSpacing(15)
 
-        self.lbl_mode = self._create_info_row(info_layout, 0, 0, "Mode détecté :", "En attente")
-        self.lbl_port = self._create_info_row(info_layout, 0, 1, "Port / Liaison :", "—")
-        self.lbl_model = self._create_info_row(info_layout, 1, 0, "Nom / Modèle :", "—")
-        self.lbl_chip = self._create_info_row(info_layout, 1, 1, "Chipset / Processeur :", "—")
-        self.lbl_android = self._create_info_row(info_layout, 2, 0, "Version Android :", "—")
-        self.lbl_imei = self._create_info_row(info_layout, 2, 1, "IMEI / N° Série :", "—")
-        self.lbl_proto = self._create_info_row(info_layout, 3, 0, "Protocole :", "—")
-        self.lbl_ident = self._create_info_row(info_layout, 3, 1, "ID Matériel / VID:PID :", "—")
+        action_desc_layout = QVBoxLayout()
+        action_desc_layout.setSpacing(2)
 
-        layout.addWidget(info_group)
+        lbl_desc_title = QLabel("Diagnostic & Identification Matérielle")
+        lbl_desc_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        lbl_desc_title.setStyleSheet(f"color: {COLOR_TEXT};")
 
-        # --- Détails techniques ---
-        detail_group = QGroupBox("Journal des spécifications matérielles")
+        lbl_desc_sub = QLabel("Lecture directe des registres matériels (BROM, Fastboot getvar ou ADB).")
+        lbl_desc_sub.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+
+        action_desc_layout.addWidget(lbl_desc_title)
+        action_desc_layout.addWidget(lbl_desc_sub)
+        action_layout.addLayout(action_desc_layout)
+        action_layout.addStretch()
+
+        # Bouton unique "Lire les informations"
+        self.btn_read_info = QPushButton("📋 Lire les informations")
+        self.btn_read_info.setObjectName("btnReadInfo")
+        self.btn_read_info.setCursor(Qt.PointingHandCursor)
+        self.btn_read_info.setFixedHeight(46)
+        self.btn_read_info.setMinimumWidth(230)
+        self.btn_read_info.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        self.btn_read_info.clicked.connect(self._on_read_info_clicked)
+        action_layout.addWidget(self.btn_read_info)
+
+        layout.addWidget(action_bar)
+
+        # ── 2. Grille des 4 spécifications principales (Champs dédiés) ─
+        grid_frame = QFrame()
+        grid_layout = QGridLayout(grid_frame)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setHorizontalSpacing(15)
+        grid_layout.setVerticalSpacing(12)
+
+        # Champ 1 : Modèle / Nom
+        self.card_model = SpecCard("Modèle de l'appareil", "Non identifié", "📱")
+        # Champ 2 : Chipset / Processeur MediaTek
+        self.card_chip = SpecCard("Chipset / Processeur", "En attente de lecture", "⚡")
+        # Champ 3 : IMEI / N° Série
+        self.card_imei = SpecCard("IMEI / N° de Série", "—", "🔑")
+        # Champ 4 : Version Android
+        self.card_android = SpecCard("Version Android", "—", "🤖")
+
+        grid_layout.addWidget(self.card_model, 0, 0)
+        grid_layout.addWidget(self.card_chip, 0, 1)
+        grid_layout.addWidget(self.card_imei, 1, 0)
+        grid_layout.addWidget(self.card_android, 1, 1)
+
+        layout.addWidget(grid_frame)
+
+        # ── 3. Spécifications de connexion & Protocole (Rangée secondaire) ──
+        sub_grid = QGridLayout()
+        sub_grid.setContentsMargins(0, 0, 0, 0)
+        sub_grid.setHorizontalSpacing(15)
+        sub_grid.setVerticalSpacing(12)
+
+        self.card_mode = SpecCard("Mode de connexion", "Déconnecté", "🔌")
+        self.card_port = SpecCard("Port / Liaison active", "Aucun", "💻")
+        self.card_proto = SpecCard("Protocole actif", "En veille", "🌐")
+        self.card_id = SpecCard("Identifiant Matériel", "—", "🏷️")
+
+        sub_grid.addWidget(self.card_mode, 0, 0)
+        sub_grid.addWidget(self.card_port, 0, 1)
+        sub_grid.addWidget(self.card_proto, 0, 2)
+        sub_grid.addWidget(self.card_id, 0, 3)
+
+        layout.addLayout(sub_grid)
+
+        # ── 4. Détails techniques & Rapport de diagnostic ────────────
+        detail_group = QGroupBox("Rapport d'inspection bas-niveau")
+        detail_group.setObjectName("detailGroup")
         detail_layout = QVBoxLayout(detail_group)
+        detail_layout.setContentsMargins(15, 15, 15, 15)
+
         self.txt_details = QTextEdit()
         self.txt_details.setReadOnly(True)
-        self.txt_details.setMaximumHeight(180)
-        self.txt_details.setPlaceholderText("Aucune information disponible. Branchez un appareil pour afficher les spécifications détectées en direct.")
+        self.txt_details.setPlaceholderText(
+            "Aucune analyse disponible. Cliquez sur « Lire les informations » "
+            "ou branchez un appareil pour générer le rapport d'identification complet."
+        )
         self.txt_details.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BG_PANEL};
+                background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                font-family: Consolas, monospace;
+                border-radius: 6px;
+                font-family: Consolas, 'Courier New', monospace;
                 font-size: 11px;
-                padding: 8px;
+                padding: 10px;
             }}
         """)
         detail_layout.addWidget(self.txt_details)
-        layout.addWidget(detail_group)
+        layout.addWidget(detail_group, stretch=1)
 
-        # --- Boutons d'action ---
-        btn_layout = QHBoxLayout()
-        self.btn_refresh = QPushButton("📋 Lire les informations appareil")
-        self.btn_refresh.setFixedHeight(38)
-        self.btn_refresh.setCursor(Qt.PointingHandCursor)
-        self.btn_refresh.clicked.connect(self._on_read_info_clicked)
-        btn_layout.addWidget(self.btn_refresh)
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
-
-        layout.addStretch()
         self._apply_stylesheet()
-
-    def _create_info_row(self, layout, row, col, label_text, default_value):
-        lbl_label = QLabel(label_text)
-        lbl_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        lbl_value = QLabel(default_value)
-        lbl_value.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px; font-weight: bold;")
-        layout.addWidget(lbl_label, row, col * 2)
-        layout.addWidget(lbl_value, row, col * 2 + 1)
-        return lbl_value
 
     def _apply_stylesheet(self):
         self.setStyleSheet(f"""
@@ -107,137 +212,141 @@ class DeviceInfoTab(QWidget):
                 background-color: {COLOR_BG_TAB};
                 color: {COLOR_TEXT};
             }}
-            QGroupBox {{
-                background-color: {COLOR_BG_PANEL};
+            QFrame#actionBar {{
+                background-color: {COLOR_BG_CARD};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
-                margin-top: 15px;
+            }}
+            QPushButton#btnReadInfo {{
+                background-color: {COLOR_ACCENT};
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+            }}
+            QPushButton#btnReadInfo:hover {{
+                background-color: {COLOR_ACCENT_HOVER};
+            }}
+            QPushButton#btnReadInfo:pressed {{
+                background-color: #0070b8;
+            }}
+            QGroupBox#detailGroup {{
+                background-color: {COLOR_BG_CARD};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 8px;
+                margin-top: 12px;
                 font-weight: bold;
                 color: {COLOR_TEXT};
-                padding: 15px;
+                padding-top: 15px;
             }}
-            QGroupBox::title {{
+            QGroupBox#detailGroup::title {{
                 subcontrol-origin: margin;
                 left: 15px;
-                padding: 0 8px;
+                padding: 0 6px;
                 color: {COLOR_ACCENT};
-            }}
-            QPushButton {{
-                background-color: {COLOR_BG_PANEL};
-                color: {COLOR_TEXT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 6px 16px;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                border-color: {COLOR_ACCENT};
-                background-color: #242a3c;
             }}
         """)
 
     # ------------------------------------------------------------------
-    # Callbacks de connexion
-    # ------------------------------------------------------------------
-    def on_device_connected(self, device_or_port, info=None):
-        if isinstance(device_or_port, ConnectedDevice):
-            dev = device_or_port
-        else:
-            dev = ConnectedDevice(
-                mode=DeviceMode.BROM,
-                identifier=str(device_or_port),
-                port=str(device_or_port),
-                description=str(info or "")
-            )
-
-        self.device_connected = True
-        self.current_device = dev
-        self.current_port = dev.port or dev.identifier
-
-        self._refresh_info()
-
-    def on_device_disconnected(self):
-        self.device_connected = False
-        self.current_device = None
-        self.current_port = None
-
-        self.lbl_mode.setText("En attente")
-        self.lbl_mode.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: bold;")
-
-        for lbl in [self.lbl_port, self.lbl_model, self.lbl_chip, self.lbl_android, self.lbl_imei, self.lbl_proto, self.lbl_ident]:
-            lbl.setText("—")
-            lbl.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px; font-weight: bold;")
-
-        self.txt_details.clear()
-        self.txt_details.setPlaceholderText("Aucune information disponible. Branchez un appareil pour afficher les spécifications détectées en direct.")
-
-    # ------------------------------------------------------------------
-    # Actions
+    # Événements & Actualisation
     # ------------------------------------------------------------------
     def _on_read_info_clicked(self):
-        """Déclenche la lecture des infos via l'assistant de connexion si nécessaire."""
+        """Déclenche la lecture des informations avec l'assistant JIT si besoin."""
         main_win = self.window()
         if hasattr(main_win, "run_action_with_assistant"):
             main_win.run_action_with_assistant(
                 action_name="Lire Infos",
                 operation_func=self._execute_read_info_with_device,
-                target_modes=[DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.NORMAL]
+                target_modes=[DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.ADB, DeviceMode.NORMAL]
             )
         else:
             self._refresh_info()
 
     def _execute_read_info_with_device(self, device: ConnectedDevice):
-        """Appelé lorsque l'appareil est détecté par l'assistant."""
+        """Exécute la lecture lorsque l'appareil est détecté."""
         self.device_connected = True
         self.current_device = device
-        self.current_port = device.port or device.identifier
         self._refresh_info()
 
     def _refresh_info(self):
+        """Interroge MTKCommunication et met à jour tous les champs dédiés."""
         if not self.device_connected or not self.current_device:
             return
 
         dev = self.current_device
         raw_info = self.mtk_comm.read_device_info()
 
-        # Mode et couleur
-        self.lbl_mode.setText(dev.mode_display)
-        self.lbl_mode.setStyleSheet(f"color: {dev.color}; font-size: 12px; font-weight: bold;")
+        # 1. Modèle
+        model_name = raw_info.get("name") or raw_info.get("model") or dev.description
+        if dev.details.get("product_name"):
+            model_name = dev.details["product_name"]
+        self.card_model.set_value(model_name, COLOR_SUCCESS)
 
-        # Port / Identifiant
-        loc = dev.port or dev.serial_number or dev.identifier
-        self.lbl_port.setText(loc)
+        # 2. Chipset
+        chip_name = raw_info.get("chip") or raw_info.get("chipset") or "MediaTek MTK"
+        if dev.details.get("hw_code_name"):
+            chip_name = dev.details["hw_code_name"]
+        self.card_chip.set_value(chip_name, COLOR_CYAN)
 
-        # Modèle & Chip
-        self.lbl_model.setText(raw_info.get("model", dev.description))
-        self.lbl_chip.setText(raw_info.get("chip", "MediaTek MTK"))
-        self.lbl_android.setText(raw_info.get("android", "—"))
-        self.lbl_imei.setText(raw_info.get("imei", raw_info.get("serial", "—")))
+        # 3. IMEI / N° Série
+        imei_val = raw_info.get("imei") or raw_info.get("serial") or dev.serial_number or "—"
+        self.card_imei.set_value(imei_val, COLOR_TEXT)
 
-        # Protocole & Identifiant
-        self.lbl_proto.setText(dev.protocol or raw_info.get("protocol", "—"))
-        if dev.vid and dev.pid:
-            self.lbl_ident.setText(f"VID: 0x{dev.vid:04X} | PID: 0x{dev.pid:04X}")
-        elif dev.serial_number:
-            self.lbl_ident.setText(f"Série : {dev.serial_number}")
-        else:
-            self.lbl_ident.setText(dev.identifier)
+        # 4. Version Android
+        android_ver = raw_info.get("android") or raw_info.get("android_version") or "—"
+        self.card_android.set_value(android_ver, COLOR_TEXT)
 
-        # Détails techniques textuels
+        # Cartes secondaires
+        self.card_mode.set_value(dev.mode_display, dev.color)
+        self.card_port.set_value(dev.port or dev.serial_number or dev.identifier, COLOR_TEXT)
+        self.card_proto.set_value(dev.protocol or raw_info.get("protocol", "Standard"), COLOR_PURPLE)
+
+        id_str = f"VID:{dev.vid:04X} PID:{dev.pid:04X}" if (dev.vid and dev.pid) else (dev.serial_number or dev.identifier)
+        self.card_id.set_value(id_str, COLOR_TEXT_MUTED)
+
+        # Rapport textuel
         self.txt_details.clear()
-        self.txt_details.append(f"=== RAPPORT D'IDENTIFICATION MATÉRIELLE ===")
-        self.txt_details.append(f"• Mode de fonctionnement : {dev.mode_display} ({dev.mode.value})")
-        self.txt_details.append(f"• Identifiant système     : {dev.identifier}")
-        if dev.port:
-            self.txt_details.append(f"• Port de communication   : {dev.port}")
+        self.txt_details.append("=================================================================")
+        self.txt_details.append(f"  RAPPORT D'IDENTIFICATION MATÉRIELLE — OPTIMA MTK TOOL")
+        self.txt_details.append("=================================================================")
+        self.txt_details.append(f"• Modèle détecté       : {model_name}")
+        self.txt_details.append(f"• Processeur / Chipset : {chip_name}")
+        self.txt_details.append(f"• Mode de connexion    : {dev.mode_display} ({dev.mode.value})")
+        self.txt_details.append(f"• Port / Interface     : {dev.port or dev.identifier}")
         if dev.serial_number:
-            self.txt_details.append(f"• Numéro de série USB     : {dev.serial_number}")
+            self.txt_details.append(f"• Numéro de Série USB  : {dev.serial_number}")
         if dev.vid and dev.pid:
-            self.txt_details.append(f"• Identifiants USB        : VID=0x{dev.vid:04X}, PID=0x{dev.pid:04X}")
+            self.txt_details.append(f"• Identifiants USB     : VendorID=0x{dev.vid:04X}, ProductID=0x{dev.pid:04X}")
         if dev.manufacturer:
-            self.txt_details.append(f"• Fabricant               : {dev.manufacturer}")
-        if dev.protocol:
-            self.txt_details.append(f"• Protocole actif         : {dev.protocol}")
-        self.txt_details.append(f"• Statut MTK Comm         : Connecté et synchronisé")
-        self.txt_details.append("===========================================")
+            self.txt_details.append(f"• Fabricant            : {dev.manufacturer}")
+        if android_ver != "—":
+            self.txt_details.append(f"• Version OS Android   : {android_ver}")
+        self.txt_details.append(f"• Protocole utilisé    : {dev.protocol or 'MediaTek Comm'}")
+        self.txt_details.append("-----------------------------------------------------------------")
+        self.txt_details.append("[SUCCESS] Diagnostic terminé. Prêt pour les opérations de maintenance.")
+
+    def on_device_connected(self, device: ConnectedDevice):
+        """Appelé en temps réel lors du branchement d'un appareil."""
+        self.device_connected = True
+        self.current_device = device
+        self._refresh_info()
+
+    def on_device_disconnected(self):
+        """Appelé en temps réel lors de la déconnexion."""
+        self.device_connected = False
+        self.current_device = None
+
+        self.card_model.set_value("Non identifié")
+        self.card_chip.set_value("En attente de lecture")
+        self.card_imei.set_value("—")
+        self.card_android.set_value("—")
+        self.card_mode.set_value("Déconnecté", COLOR_TEXT_MUTED)
+        self.card_port.set_value("Aucun")
+        self.card_proto.set_value("En veille")
+        self.card_id.set_value("—")
+
+        self.txt_details.clear()
+        self.txt_details.setPlaceholderText(
+            "Aucune analyse disponible. Cliquez sur « Lire les informations » "
+            "ou branchez un appareil pour générer le rapport d'identification complet."
+        )

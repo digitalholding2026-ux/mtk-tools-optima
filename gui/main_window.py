@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Fenêtre principale de l'application Optima MTK Tool.
-Intègre la détection automatique et en temps réel des périphériques USB/COM
-(Modes BROM/BootROM, Fastboot, Normal/AT).
+Interface graphique moderne, ultra-simple et optimisée pour l'atelier de maintenance.
+
+Organisation :
+  1. En-tête permanent avec titre & bandeau de statut temps réel (🔴 / 🟢 / 🟡)
+  2. Navigation par 3 onglets principaux :
+       - Onglet 1 : [Infos & Diagnostic]
+       - Onglet 2 : [FRP & Sécurité]
+       - Onglet 3 : [Outils & Redémarrage]
+  3. Console de logs intégrée en bas (Monospace Consolas, couleurs dynamiques)
 """
 
 from typing import Optional, List, Callable
@@ -10,28 +17,26 @@ from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QMessageBox, QFrame
 )
-from PyQt5.QtCore import Qt, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSlot
 from PyQt5.QtGui import QFont, QIcon
 
-from gui.dashboard import DashboardTab
-from gui.frp_tab import FRPResetTab
-from gui.flash_tab import FlashTab
 from gui.device_info_tab import DeviceInfoTab
+from gui.frp_tab import FRPResetTab
+from gui.tools_tab import ToolsTab
 from gui.log_panel import LogPanel
 from gui.device_status_widget import DeviceStatusBanner
 from core.detector import DeviceDetector, ConnectedDevice, DeviceMode
 from core.mtk_communication import MTKCommunication
 
-
-# Palette de couleurs Optima Telecom (mode sombre professionnel)
-COLOR_BG_DARK = "#0f111a"          # Fond très sombre
-COLOR_BG_PANEL = "#161a28"         # Fond des panneaux
-COLOR_BG_TAB = "#1e2332"           # Fond des onglets
-COLOR_ACCENT = "#00a2ff"           # Bleu accent Optima Telecom
-COLOR_ACCENT_HOVER = "#0088cc"     # Bleu au survol
-COLOR_TEXT = "#e8eaf2"             # Texte principal
-COLOR_TEXT_MUTED = "#8a92a8"       # Texte secondaire
-COLOR_BORDER = "#2c334a"           # Bordures
+# Palette de couleurs Optima Telecom (Dark Mode Professionnel)
+COLOR_BG_DARK = "#0d111a"          # Fond d'application très sombre
+COLOR_BG_PANEL = "#121522"         # Fond des barres et panneaux
+COLOR_BG_TAB = "#0f111a"           # Fond de zone d'onglets
+COLOR_ACCENT = "#00a2ff"           # Bleu électrique Optima Telecom
+COLOR_ACCENT_HOVER = "#0088cc"     # Bleu survol
+COLOR_TEXT = "#e8eaf2"             # Texte clair principal
+COLOR_TEXT_MUTED = "#8a92a8"       # Texte secondaire estompé
+COLOR_BORDER = "#252c40"           # Bordures subtiles
 COLOR_SUCCESS = "#2ecc71"          # Vert succès
 COLOR_WARNING = "#f1c40f"          # Jaune avertissement
 COLOR_ERROR = "#e74c3c"            # Rouge erreur
@@ -39,49 +44,48 @@ COLOR_CYAN = "#00c3ff"             # Cyan Fastboot
 
 
 class MainWindow(QMainWindow):
-    """Fenêtre principale de l'application."""
+    """Fenêtre principale de l'application Optima MTK Tool."""
 
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Optima MTK Tool - Flash & Déblocage FRP (Auto-Détection Active)")
-        self.setMinimumSize(1100, 750)
-        self.resize(1200, 800)
+        self.setWindowTitle("Optima MTK Tool — Atelier de Maintenance & Déblocage")
+        self.setMinimumSize(1120, 780)
+        self.resize(1220, 840)
 
         # Initialisation du moteur de communication et du détecteur en arrière-plan
         self.mtk_comm = MTKCommunication()
         self.detector = DeviceDetector(interval=1.5)
         self.com_detector = self.detector  # Rétrocompatibilité
 
-        # Construction de l'interface
+        # Construction de l'interface graphique refondue
         self._setup_ui()
         self._apply_stylesheet()
         self._create_menu_bar()
         self._create_status_bar()
 
-        # Connexion des signaux de détection automatique
+        # Connexion des signaux de détection automatique en temps réel
         self.detector.device_detected.connect(self._on_device_detected)
         self.detector.device_lost.connect(self._on_device_lost)
         self.detector.status_updated.connect(self._on_status_updated)
         self.detector.status_updated.connect(self.status_banner.update_status)
         self.detector.log_message.connect(self._append_log)
 
-        # Message initial dans le panneau de logs
-        self.log_panel.add_log("Optima MTK Tool v1.0.0 initialisé.", "info")
+        # Message d'accueil professionnel dans la console
+        self.log_panel.add_log("Optima MTK Tool initialisé avec succès.", "success")
         self.log_panel.add_log(
-            "Service de détection automatique actif en arrière-plan. "
-            "Connectez un appareil en mode BROM, Fastboot ou Normal/AT.",
+            "Service de surveillance en temps réel actif (BROM MediaTek, Fastboot, ADB).",
             "info"
         )
 
-        # Démarrage immédiat de la surveillance en arrière-plan (QThread non bloquant)
+        # Démarrage immédiat de la surveillance en arrière-plan
         self.detector.start_monitoring()
 
     # ------------------------------------------------------------------
-    # Construction de l'interface
+    # Construction de l'interface principale
     # ------------------------------------------------------------------
     def _setup_ui(self):
-        """Construit l'interface principale avec onglets et panneau de logs."""
+        """Assemble l'en-tête, le bandeau de statut, les 3 onglets et la console."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -89,223 +93,166 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # --- En-tête avec titre et badge dynamique temps réel ---
+        # ── 1. En-tête de marque permanent ───────────────────────────
         header = self._build_header()
         main_layout.addWidget(header)
 
-        # --- Bandeau de statut persistant (toujours visible, entre header et onglets) ---
+        # ── 2. Bandeau d'état permanent (🔴 / 🟢 / 🟡) ────────────────
         self.status_banner = DeviceStatusBanner()
         main_layout.addWidget(self.status_banner)
 
-        # --- Zone centrale avec onglets ---
+        # ── 3. Navigation par Onglets (3 Onglets Principaux) ─────────
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.tabs.setTabPosition(QTabWidget.North)
         self.tabs.setMovable(False)
 
-        # Onglet Accueil / Dashboard
-        self.dashboard_tab = DashboardTab(self.detector, self.mtk_comm)
-        self.tabs.addTab(self.dashboard_tab, "Accueil")
-
-        # Onglet FRP Reset
-        self.frp_tab = FRPResetTab(self.mtk_comm)
-        self.tabs.addTab(self.frp_tab, "FRP Reset")
-
-        # Onglet Flash Tool
-        self.flash_tab = FlashTab(self.mtk_comm)
-        self.tabs.addTab(self.flash_tab, "Flash Tool")
-
-        # Onglet Informations Appareil
+        # Onglet 1 : [Infos & Diagnostic]
         self.device_info_tab = DeviceInfoTab(self.mtk_comm)
-        self.tabs.addTab(self.device_info_tab, "Informations Appareil")
+        self.tabs.addTab(self.device_info_tab, "  📋 Infos & Diagnostic  ")
+
+        # Onglet 2 : [FRP & Sécurité]
+        self.frp_tab = FRPResetTab(self.mtk_comm)
+        self.tabs.addTab(self.frp_tab, "  🔒 FRP & Sécurité  ")
+
+        # Onglet 3 : [Outils & Redémarrage]
+        self.tools_tab = ToolsTab(self.mtk_comm)
+        self.tabs.addTab(self.tools_tab, "  🛠️ Outils & Redémarrage  ")
 
         main_layout.addWidget(self.tabs, stretch=1)
 
-        # --- Panneau de logs (bas) ---
+        # ── 4. Console de Logs Intégrée (Bas de fenêtre) ──────────────
         self.log_panel = LogPanel()
         main_layout.addWidget(self.log_panel)
 
-    def _build_header(self):
-        """
-        Construit l'en-tête avec le logo/titre et le Badge de Statut Dynamique
-        remplaçant l'ancien bouton de détection manuelle.
-        """
+    def _build_header(self) -> QFrame:
+        """Construit l'en-tête permanent avec le titre et le bouton réanalyser."""
         header = QFrame()
-        header.setFixedHeight(74)
-        header.setObjectName("header")
+        header.setFixedHeight(68)
+        header.setObjectName("appHeader")
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setContentsMargins(22, 0, 22, 0)
+        layout.setSpacing(16)
 
-        # Titre et sous-titre
-        title_label = QLabel("Optima MTK Tool")
-        title_label.setObjectName("titleLabel")
-        title_font = QFont("Segoe UI", 18, QFont.Bold)
-        title_label.setFont(title_font)
+        # Logo / Titre de l'application
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(2)
 
-        subtitle_label = QLabel("Flash & Déblocage FRP - MediaTek (Surveillance USB Temps Réel)")
-        subtitle_label.setObjectName("subtitleLabel")
-        subtitle_font = QFont("Segoe UI", 10)
-        subtitle_label.setFont(subtitle_font)
+        lbl_app_name = QLabel("OPTIMA MTK TOOL")
+        lbl_app_name.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        lbl_app_name.setStyleSheet(f"color: {COLOR_ACCENT}; letter-spacing: 0.8px;")
 
-        title_container = QVBoxLayout()
-        title_container.setContentsMargins(0, 0, 0, 0)
-        title_container.setSpacing(2)
-        title_container.addWidget(title_label)
-        title_container.addWidget(subtitle_label)
+        lbl_app_sub = QLabel("Atelier de Maintenance & Déblocage FRP Mobile — Processeurs MediaTek")
+        lbl_app_sub.setFont(QFont("Segoe UI", 9))
+        lbl_app_sub.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
 
-        layout.addLayout(title_container)
+        title_box.addWidget(lbl_app_name)
+        title_box.addWidget(lbl_app_sub)
+        layout.addLayout(title_box)
+
         layout.addStretch()
 
-        # ==============================================================
-        # Badge de Statut Dynamique en Temps Réel (Remplace le bouton manuel)
-        # ==============================================================
-        self.status_badge_frame = QFrame()
-        self.status_badge_frame.setObjectName("statusBadgeFrame")
-        badge_layout = QHBoxLayout(self.status_badge_frame)
-        badge_layout.setContentsMargins(14, 8, 14, 8)
-        badge_layout.setSpacing(10)
-
-        # Point indicateur LED
-        self.lbl_badge_led = QLabel("●")
-        self.lbl_badge_led.setObjectName("badgeLed")
-        self.lbl_badge_led.setFont(QFont("Segoe UI", 14, QFont.Bold))
-        self.lbl_badge_led.setStyleSheet("color: #8a92a8;")
-
-        # Conteneur des textes du badge
-        text_container = QVBoxLayout()
-        text_container.setContentsMargins(0, 0, 0, 0)
-        text_container.setSpacing(1)
-
-        self.lbl_badge_title = QLabel("En attente de connexion...")
-        self.lbl_badge_title.setObjectName("badgeTitle")
-        self.lbl_badge_title.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        self.lbl_badge_title.setStyleSheet("color: #e8eaf2;")
-
-        self.lbl_badge_sub = QLabel("Surveillance active (BROM, Fastboot, Normal)")
-        self.lbl_badge_sub.setObjectName("badgeSubtitle")
-        self.lbl_badge_sub.setFont(QFont("Segoe UI", 9))
-        self.lbl_badge_sub.setStyleSheet("color: #8a92a8;")
-
-        text_container.addWidget(self.lbl_badge_title)
-        text_container.addWidget(self.lbl_badge_sub)
-
-        # Bouton compact de réanalyse immédiate (optionnel / d'appoint)
-        self.btn_rescan = QPushButton("🔄")
-        self.btn_rescan.setObjectName("rescanButton")
-        self.btn_rescan.setToolTip("Forcer une analyse immédiate sans attendre l'intervalle")
-        self.btn_rescan.setFixedSize(32, 32)
+        # Bouton réanalyser immédiat (F5 / clic)
+        self.btn_rescan = QPushButton("🔄 Réanalyser USB")
+        self.btn_rescan.setObjectName("btnHeaderRescan")
+        self.btn_rescan.setToolTip("Forcer une analyse immédiate des ports USB et Fastboot (Touche F5)")
+        self.btn_rescan.setFixedHeight(34)
         self.btn_rescan.setCursor(Qt.PointingHandCursor)
+        self.btn_rescan.setFont(QFont("Segoe UI", 9, QFont.Bold))
         self.btn_rescan.clicked.connect(self._on_rescan_clicked)
-
-        badge_layout.addWidget(self.lbl_badge_led)
-        badge_layout.addLayout(text_container)
-        badge_layout.addWidget(self.btn_rescan)
-
-        layout.addWidget(self.status_badge_frame)
+        layout.addWidget(self.btn_rescan)
 
         return header
 
+    # ------------------------------------------------------------------
+    # Menus et barre de statut système
+    # ------------------------------------------------------------------
     def _create_menu_bar(self):
-        """Crée la barre de menu de l'application."""
         menubar = self.menuBar()
 
         # Menu Fichier
         menu_file = menubar.addMenu("&Fichier")
-        action_exit = menu_file.addAction("Quitter")
-        action_exit.setShortcut("Ctrl+Q")
-        action_exit.triggered.connect(self.close)
+        act_exit = menu_file.addAction("Quitter")
+        act_exit.setShortcut("Ctrl+Q")
+        act_exit.triggered.connect(self.close)
 
         # Menu Outils
         menu_tools = menubar.addMenu("&Outils")
-        action_scan = menu_tools.addAction("Forcer l'analyse USB / Fastboot")
-        action_scan.setShortcut("F5")
-        action_scan.triggered.connect(self._on_rescan_clicked)
+        act_rescan = menu_tools.addAction("Forcer l'analyse USB (F5)")
+        act_rescan.setShortcut("F5")
+        act_rescan.triggered.connect(self._on_rescan_clicked)
         menu_tools.addSeparator()
-        action_clear_logs = menu_tools.addAction("Effacer les logs")
-        action_clear_logs.triggered.connect(self.log_panel.clear_logs)
+        act_clear = menu_tools.addAction("Effacer la console")
+        act_clear.triggered.connect(self.log_panel.clear_logs)
 
         # Menu Aide
         menu_help = menubar.addMenu("&Aide")
-        action_about = menu_help.addAction("À propos")
-        action_about.triggered.connect(self._show_about)
+        act_about = menu_help.addAction("À propos d'Optima MTK Tool")
+        act_about.triggered.connect(self._show_about)
 
     def _create_status_bar(self):
-        """Crée la barre de statut en bas de fenêtre."""
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
-        # Indicateur de veille du service
         self.heartbeat_label = QLabel("● Surveillance active (1.5s)")
-        self.heartbeat_label.setStyleSheet("color: #00a2ff; font-size: 10px; margin-right: 15px;")
+        self.heartbeat_label.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 10px; margin-right: 15px;")
         self.status_bar.addWidget(self.heartbeat_label)
 
-        # Statut permanent de l'appareil
         self.status_label = QLabel("Aucun appareil connecté")
         self.status_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
         self.status_bar.addPermanentWidget(self.status_label)
-        self.status_bar.showMessage("Prêt", 3000)
+        self.status_bar.showMessage("Prêt pour la maintenance", 3000)
 
     # ------------------------------------------------------------------
-    # Stylesheet
+    # Feuilles de style globales (Dark Mode Optima Telecom)
     # ------------------------------------------------------------------
     def _apply_stylesheet(self):
-        """Applique la feuille de style sombre Optima Telecom."""
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {COLOR_BG_DARK};
             }}
-            QFrame#header {{
+            QFrame#appHeader {{
                 background-color: {COLOR_BG_PANEL};
                 border-bottom: 1px solid {COLOR_BORDER};
             }}
-            QLabel#titleLabel {{
+            QPushButton#btnHeaderRescan {{
+                background-color: #1a2034;
                 color: {COLOR_TEXT};
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QLabel#subtitleLabel {{
-                color: {COLOR_TEXT_MUTED};
-                font-size: 10px;
-            }}
-            QFrame#statusBadgeFrame {{
-                background-color: #121522;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 8px;
-            }}
-            QPushButton#rescanButton {{
-                background-color: {COLOR_BG_PANEL};
-                color: {COLOR_TEXT_MUTED};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 6px;
-                font-size: 13px;
+                padding: 6px 14px;
             }}
-            QPushButton#rescanButton:hover {{
+            QPushButton#btnHeaderRescan:hover {{
                 border-color: {COLOR_ACCENT};
                 color: {COLOR_ACCENT};
-                background-color: #242a3c;
+                background-color: #202840;
             }}
             QTabWidget::pane {{
-                border: 1px solid {COLOR_BORDER};
+                border: none;
                 background-color: {COLOR_BG_TAB};
+            }}
+            QTabBar {{
+                background-color: {COLOR_BG_PANEL};
+                border-bottom: 2px solid {COLOR_BORDER};
             }}
             QTabBar::tab {{
-                background-color: {COLOR_BG_PANEL};
+                background-color: transparent;
                 color: {COLOR_TEXT_MUTED};
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                padding: 12px 24px;
+                font-size: 12px;
+                font-weight: bold;
+                border-bottom: 3px solid transparent;
             }}
             QTabBar::tab:selected {{
-                background-color: {COLOR_BG_TAB};
                 color: {COLOR_ACCENT};
-                font-weight: bold;
-                border-bottom: 2px solid {COLOR_ACCENT};
+                border-bottom: 3px solid {COLOR_ACCENT};
+                background-color: #161c2c;
             }}
             QTabBar::tab:hover:!selected {{
-                background-color: #242a3c;
                 color: {COLOR_TEXT};
+                background-color: #151928;
             }}
             QStatusBar {{
                 background-color: {COLOR_BG_PANEL};
@@ -316,10 +263,12 @@ class MainWindow(QMainWindow):
                 background-color: {COLOR_BG_PANEL};
                 color: {COLOR_TEXT};
                 border-bottom: 1px solid {COLOR_BORDER};
+                padding: 2px;
             }}
             QMenuBar::item:selected {{
                 background-color: {COLOR_ACCENT};
                 color: #ffffff;
+                border-radius: 3px;
             }}
             QMenu {{
                 background-color: {COLOR_BG_PANEL};
@@ -328,93 +277,74 @@ class MainWindow(QMainWindow):
             }}
             QMenu::item:selected {{
                 background-color: {COLOR_ACCENT};
+                color: #ffffff;
             }}
         """)
 
     # ------------------------------------------------------------------
-    # Événements & Slots de Détection
+    # Événements et synchronisation de détection USB
     # ------------------------------------------------------------------
     def _on_rescan_clicked(self):
-        """Déclenche une vérification immédiate des ports COM et Fastboot."""
+        """Force une analyse immédiate sans attendre l'intervalle."""
+        self._append_log("[+] Analyse immédiate des ports USB/Fastboot déclenchée...", "info")
         self.detector.scan_now()
 
-    def _on_status_updated(self, mode_str, title, subtitle, color):
-        """Mise à jour dynamique de l'affichage du badge d'en-tête."""
-        self.lbl_badge_led.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: bold;")
-        self.lbl_badge_title.setText(title)
-        self.lbl_badge_title.setStyleSheet(f"color: {color if mode_str != 'NONE' else '#e8eaf2'}; font-size: 11px; font-weight: bold;")
-        self.lbl_badge_sub.setText(subtitle)
-        self.status_badge_frame.setStyleSheet(f"""
-            QFrame#statusBadgeFrame {{
-                background-color: #121522;
-                border: 1px solid {color}66;
-                border-radius: 8px;
-            }}
-        """)
+    def _on_status_updated(self, mode_str: str, title: str, subtitle: str, color: str):
+        """Forwardé automatiquement vers self.status_banner."""
+        pass
 
     def _on_device_detected(self, device: ConnectedDevice):
-        """Appelé en temps réel lorsqu'un périphérique est branché/détecté."""
-        # Mise à jour du badge d'en-tête
-        self._on_status_updated(
-            device.mode.value,
-            device.badge_title,
-            device.badge_subtitle,
-            device.color
-        )
-
-        # Mise à jour du bandeau de statut persistant
-        self.status_banner.update_status(
-            device.mode.value,
-            f"🟢 {device.badge_title}",
-            device.badge_subtitle,
-            device.color
-        )
-
-        # 1. Mise à jour de la logique métier (protocole, port, mode)
+        """Appelé en temps réel dès qu'un appareil est connecté."""
+        # 1. Mise à jour de la logique métier
         self.mtk_comm.set_device(device)
 
-        # 2. Mise à jour de la barre de statut
+        # 2. Construction du libellé selon la spécification atelier
+        # ex: 🟢 "Connecté : Infinix Hot 11 Play [Mode BROM]"
+        model_name = device.description or "Périphérique MediaTek"
+        if device.details.get("product_name"):
+            model_name = device.details["product_name"]
+
         loc = device.port or device.serial_number or device.identifier
+        self.status_banner.set_device_info(
+            model_name=model_name,
+            mode_name=device.mode_display,
+            port_name=loc
+        )
+
+        # 3. Barre de statut système
         self.status_label.setText(f"Appareil connecté : {device.mode.value} ({loc})")
         self.status_label.setStyleSheet(f"color: {device.color}; font-weight: bold;")
 
-        # 3. Transmission dynamique aux onglets applicatifs
-        self.dashboard_tab.on_device_connected(device)
+        # 4. Transmission dynamique aux 3 onglets
         self.device_info_tab.on_device_connected(device)
         self.frp_tab.on_device_connected(device)
-        self.flash_tab.on_device_connected(device)
+        self.tools_tab.on_device_connected(device)
 
     def _on_device_lost(self, device: ConnectedDevice):
-        """Appelé en temps réel lorsque le périphérique est débranché."""
-        # Remise à zéro du badge d'en-tête
-        self._on_status_updated(
-            DeviceMode.NONE.value,
-            "En attente de connexion...",
-            "Surveillance active (BROM, Fastboot, Normal)",
-            "#8a92a8"
-        )
-
-        # Remise à zéro du bandeau de statut persistant
+        """Appelé en temps réel lors du débranchement de l'appareil."""
+        # 1. Mise à jour du bandeau de statut
         self.status_banner.update_status(
             "NONE",
-            "🔴 Aucun appareil détecté",
-            "Surveillance continue active (BROM, Fastboot, ADB)…",
+            "🔴 Aucun appareil connecté",
+            "Surveillance continue active (BROM MediaTek, Fastboot, ADB)...",
             "#e74c3c"
         )
 
-        # 1. Mise à jour de la logique métier
+        # 2. Réinitialisation de la logique métier
         self.mtk_comm.disconnect()
 
-        # 2. Mise à jour de la barre de statut
+        # 3. Barre de statut
         self.status_label.setText("Aucun appareil connecté")
         self.status_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
 
-        # 3. Transmission dynamique aux onglets applicatifs
-        self.dashboard_tab.on_device_disconnected()
+        # 4. Transmission aux 3 onglets
         self.device_info_tab.on_device_disconnected()
         self.frp_tab.on_device_disconnected()
-        self.flash_tab.on_device_disconnected()
+        self.tools_tab.on_device_disconnected()
 
+    # ------------------------------------------------------------------
+    # Exécution des actions avec Assistant Just-In-Time (JIT)
+    # ------------------------------------------------------------------
     def run_action_with_assistant(
         self,
         action_name: str,
@@ -424,43 +354,37 @@ class MainWindow(QMainWindow):
         timeout: int = 60
     ) -> bool:
         """
-        Déclenche l'assistant visuel d'instructions et l'écoute active temporaire (JIT).
-
-        Optimisation : si le service de surveillance en arrière-plan a déjà détecté
-        un appareil compatible, l'action est exécutée immédiatement sans ouvrir la popup
-        d'instruction (passage fluide, zéro latence).
-
-        Sinon, ouvre la popup, attend le branchement avec animation et décompte, ferme la
-        popup dès détection, consigne le log propre et exécute operation_func.
+        Exécute une action en s'adaptant à l'état de l'appareil :
+          - Si un appareil compatible est déjà détecté par la surveillance de fond :
+            exécution instantanée sans popup d'attente (zéro latence).
+          - Si aucun appareil n'est présent : ouvre la boîte d'instructions JIT
+            avec décompte, animation et détection à la volée.
         """
-        # ── Vérification de l'état détecté par le service de fond ──────
         current = self.detector.get_current_device()
         if current is not None:
-            # Vérifier la compatibilité du mode avec les modes cibles
             mode_ok = (target_modes is None) or (current.mode in target_modes)
             if mode_ok:
                 loc = current.port or current.serial_number or current.identifier
                 self._append_log(
-                    f"Appareil déjà détecté ({current.mode.value} — {loc}). "
-                    f"Exécution immédiate de « {action_name} »…",
+                    f"Appareil déjà présent ({current.mode.value} — {loc}). "
+                    f"Exécution immédiate de « {action_name} »...",
                     "success"
                 )
-                # S'assurer que les onglets sont à jour avec l'appareil en cours
                 self._on_device_detected(current)
                 operation_func(current)
                 return True
 
-        # ── Aucun appareil pré-détecté : ouvrir l'assistant JIT ─────────
+        # Ouverture de l'assistant JIT
         from gui.connection_assistant import execute_with_assistant
 
-        def wrapped_operation(device: ConnectedDevice):
+        def wrapped_op(device: ConnectedDevice):
             self._on_device_detected(device)
             operation_func(device)
 
         return execute_with_assistant(
             parent=self,
             action_name=action_name,
-            operation_func=wrapped_operation,
+            operation_func=wrapped_op,
             target_modes=target_modes,
             custom_instructions=custom_instructions,
             timeout=timeout,
@@ -468,27 +392,28 @@ class MainWindow(QMainWindow):
         )
 
     def _append_log(self, message: str, level: str = "info"):
-        """Ajoute un message horodaté au panneau de logs."""
+        """Consigne un événement dans la console intégrée."""
         self.log_panel.add_log(message, level)
 
     def _show_about(self):
-        """Affiche la boîte de dialogue À propos."""
         QMessageBox.about(
             self,
-            "À propos - Optima MTK Tool",
+            "À propos — Optima MTK Tool",
             "<b>Optima MTK Tool</b> v1.0.0<br><br>"
-            "Application de flash et déblocage FRP pour processeurs MediaTek.<br>"
-            "Module de détection automatique en temps réel (BROM, Fastboot, Normal/AT).<br><br>"
-            "© Optima Telecom - Outil de maintenance mobile<br>"
-            "Mode sombre - Interface PyQt5"
+            "Solution d'atelier pour le diagnostic, le flash et le déblocage FRP "
+            "des appareils équipés de processeurs <b>MediaTek</b>.<br><br>"
+            "• Détection en temps réel (BROM, Fastboot, ADB)<br>"
+            "• Assistant de connexion Just-In-Time<br>"
+            "• Architecture multi-threadée non bloquante<br><br>"
+            "© Optima Telecom — Outil de maintenance mobile"
         )
 
     def closeEvent(self, event):
-        """Gestion de la fermeture de la fenêtre avec arrêt propre du thread."""
+        """Fermeture propre avec arrêt du thread de surveillance."""
         if self.mtk_comm.is_connected():
             reply = QMessageBox.question(
-                self, "Déconnexion",
-                "Un appareil est encore connecté. Voulez-vous vraiment quitter ?",
+                self, "Confirmation de sortie",
+                "Un appareil est encore synchronisé. Voulez-vous vraiment fermer l'application ?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -496,6 +421,18 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-        # Arrêt sécurisé du thread de surveillance
         self.detector.stop_monitoring()
         event.accept()
+
+    # ------------------------------------------------------------------
+    # Propriétés de rétrocompatibilité
+    # ------------------------------------------------------------------
+    @property
+    def dashboard_tab(self):
+        """Rétrocompatibilité : redirige vers l'onglet d'informations."""
+        return self.device_info_tab
+
+    @property
+    def flash_tab(self):
+        """Rétrocompatibilité : redirige vers l'onglet d'outils."""
+        return self.tools_tab

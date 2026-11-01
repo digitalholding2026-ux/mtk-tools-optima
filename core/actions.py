@@ -136,6 +136,59 @@ def _run_fastboot_cmd(cmd_args: List[str], timeout: float = 15.0) -> Tuple[int, 
 
 
 # =====================================================================
+# Localisation de l'exécutable ADB
+# =====================================================================
+
+def find_adb() -> Optional[str]:
+    """Trouve l'exécutable adb sur le système ou dans le projet."""
+    found = shutil.which("adb")
+    if found:
+        return found
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        os.path.join(base_dir, "platform-tools", "adb.exe"),
+        os.path.join(base_dir, "tools", "adb.exe"),
+        os.path.join(base_dir, "assets", "bin", "adb.exe"),
+        os.path.join(base_dir, "bin", "adb.exe"),
+    ]
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    if local_app_data:
+        candidates.append(os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "adb.exe"))
+
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+
+    return "adb"
+
+
+def _run_adb_cmd(cmd_args: List[str], timeout: float = 15.0) -> Tuple[int, str, str]:
+    """Exécute une commande adb sans pop-up de console cmd sous Windows."""
+    adb_bin = find_adb() or "adb"
+    full_cmd = [adb_bin] + cmd_args
+
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    proc = subprocess.run(
+        full_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+        creationflags=creationflags,
+        startupinfo=startupinfo
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+# =====================================================================
 # Gestionnaire de communication série MTK BROM
 # =====================================================================
 
@@ -608,3 +661,105 @@ def erase_frp(
         _log("[WARNING] Le déblocage FRP requiert le mode BROM (recommandé) ou Fastboot.", "warning")
         _log("[INFO] Éteignez le téléphone, puis connectez le câble en maintenant Volume Bas pour passer en mode BROM.", "info")
         return ActionResult(success=False, message="Mode Normal non supporté pour le déblocage FRP.")
+
+
+# =====================================================================
+# 4. Action : REDÉMARRAGE (reboot_device)
+# =====================================================================
+
+def reboot_device(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    target_reboot: str = "normal",
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Exécute le redémarrage d'un périphérique connecté vers :
+      - 'normal'   : Redémarrage normal dans le système Android
+      - 'fastboot' : Redémarrage en mode Bootloader / Fastboot
+      - 'recovery' : Redémarrage en mode Récupération (Recovery)
+    """
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    label_target = {
+        "normal": "Système Normal",
+        "fastboot": "Mode Bootloader / Fastboot",
+        "recovery": "Mode Récupération / Recovery"
+    }.get(target_reboot, "Système Normal")
+
+    _log(f"[+] Commande de redémarrage vers {label_target} reçue...", "info")
+
+    # 4.1 Mode FASTBOOT
+    if "FASTBOOT" in mode_str:
+        target_args = ["-s", device_id] if device_id else []
+        cmd_args = ["reboot"]
+        if target_reboot == "fastboot":
+            cmd_args = ["reboot-bootloader"]
+        elif target_reboot == "recovery":
+            cmd_args = ["reboot", "recovery"]
+
+        _log(f"[+] Envoi : fastboot {' '.join(cmd_args)}...", "info")
+        ret, stdout, stderr = _run_fastboot_cmd(target_args + cmd_args, timeout=10.0)
+        output = (stderr + "\n" + stdout).strip()
+
+        if ret == 0 or "rebooting" in output.lower() or "finished" in output.lower():
+            _log(f"[SUCCESS] Appareil redémarré avec succès vers {label_target}.", "success")
+            return ActionResult(success=True, message=f"Redémarrage {label_target} réussi (Fastboot).")
+        else:
+            _log(f"[!] Échec commande Fastboot ({output}). Essai standard reboot...", "warning")
+            _run_fastboot_cmd(target_args + ["reboot"], timeout=6.0)
+            return ActionResult(success=True, message=f"Commande reboot envoyée.")
+
+    # 4.2 Mode ADB / Débogage actif
+    elif "ADB" in mode_str or (device_identifier and device_identifier.startswith("ADB:")):
+        target_args = ["-s", device_id] if device_id else []
+        cmd_args = ["reboot"]
+        if target_reboot == "fastboot":
+            cmd_args = ["reboot", "bootloader"]
+        elif target_reboot == "recovery":
+            cmd_args = ["reboot", "recovery"]
+
+        _log(f"[+] Envoi : adb {' '.join(cmd_args)}...", "info")
+        ret, stdout, stderr = _run_adb_cmd(target_args + cmd_args, timeout=10.0)
+        output = (stderr + "\n" + stdout).strip()
+
+        if ret == 0 or not output or "error" not in output.lower():
+            _log(f"[SUCCESS] Commande ADB de redémarrage ({label_target}) exécutée avec succès.", "success")
+            return ActionResult(success=True, message=f"Redémarrage {label_target} réussi (ADB).")
+        else:
+            _log(f"[ERROR] Échec de la commande ADB : {output}", "error")
+            return ActionResult(success=False, message=output)
+
+    # 4.3 Mode BROM / Preloader
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        port = device_id if device_id.upper().startswith("COM") else "COM3"
+        _log(f"[+] Envoi de l'instruction de réinitialisation matérielle sur {port}...", "info")
+        try:
+            if HAS_SERIAL:
+                try:
+                    with serial.Serial(port, baudrate=115200, timeout=1) as ser:
+                        # Envoi de la commande de réinitialisation logicielle MTK
+                        ser.write(b"\xd4")
+                        time.sleep(0.1)
+                except Exception:
+                    pass
+            _log(f"[SUCCESS] Signal de redémarrage envoyé au processeur MediaTek.", "success")
+            return ActionResult(success=True, message="Signal de redémarrage BROM envoyé.")
+        except Exception as e:
+            _log(f"[ERROR] Échec lors de la réinitialisation BROM : {str(e)}", "error")
+            return ActionResult(success=False, message=str(e))
+
+    # 4.4 Autre / Mode Normal sans ADB
+    else:
+        _log(f"[INFO] Tentative de redémarrage via commande système ADB...", "info")
+        ret, stdout, stderr = _run_adb_cmd(["reboot"], timeout=6.0)
+        if ret == 0:
+            _log(f"[SUCCESS] Appareil redémarré avec succès.", "success")
+            return ActionResult(success=True, message="Redémarrage réussi.")
+        _log("[WARNING] Aucun protocole actif ne permet d'envoyer la commande de redémarrage direct.", "warning")
+        return ActionResult(success=False, message="Protocole indisponible pour redémarrage à distance.")

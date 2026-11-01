@@ -295,7 +295,7 @@ class DeviceDetector(QThread):
             return
         self._running = True
         self.start()
-        self.log_message.emit("Service de détection automatique USB démarré (BROM / Fastboot / Normal).", "info")
+        self.log_message.emit("Service de détection automatique USB démarré (BROM / Fastboot / ADB / Normal).", "info")
 
     def stop_monitoring(self):
         """Arrête le thread proprement."""
@@ -329,10 +329,16 @@ class DeviceDetector(QThread):
         """Scanne les ports COM et Fastboot, puis met à jour l'état si changement."""
         devices = self._scan_all_candidates()
 
-        # Sélection de l'appareil prioritaire : BROM > FASTBOOT > NORMAL
+        # Sélection de l'appareil prioritaire : BROM > FASTBOOT > ADB > NORMAL > USB_NORMAL
         detected: Optional[ConnectedDevice] = None
         if devices:
-            priority_order = {DeviceMode.BROM: 1, DeviceMode.FASTBOOT: 2, DeviceMode.NORMAL: 3}
+            priority_order = {
+                DeviceMode.BROM: 1,
+                DeviceMode.FASTBOOT: 2,
+                DeviceMode.ADB: 3,
+                DeviceMode.NORMAL: 4,
+                DeviceMode.USB_NORMAL: 5,
+            }
             devices.sort(key=lambda d: priority_order.get(d.mode, 99))
             detected = devices[0]
 
@@ -654,6 +660,20 @@ class DeviceDetector(QThread):
             msg = f"Appareil détecté en mode Fastboot (N° série : {serial})"
             self.log_message.emit(msg, "info")
 
+        elif device.mode == DeviceMode.ADB:
+            serial = device.serial_number or "Inconnu"
+            state = device.details.get("adb_state", "device")
+            msg = f"Appareil connecté en mode ADB — Débogage actif (Série : {serial}, État : {state})"
+            self.log_message.emit(msg, "success")
+
+        elif device.mode == DeviceMode.USB_NORMAL:
+            serial = device.serial_number or device.identifier
+            msg = (
+                f"Appareil branché en mode Normal ({serial}) — "
+                "ADB non actif. Pour le FRP/Flash, éteignez l'appareil et suivez l'assistant."
+            )
+            self.log_message.emit(msg, "warning")
+
         elif device.mode == DeviceMode.NORMAL:
             loc = device.port or device.serial_number or device.identifier
             proto = device.protocol or "Interface Standard"
@@ -675,15 +695,16 @@ class DeviceDetector(QThread):
             self.status_updated.emit(
                 DeviceMode.NONE.value,
                 "Aucun appareil détecté",
-                "Surveillance continue active (BROM, Fastboot, ADB)...",
+                "Surveillance continue active (BROM, Fastboot, ADB)…",
                 "#e74c3c"
             )
         else:
+            # Utilise la couleur propre au mode (vert, jaune, etc.)
             self.status_updated.emit(
                 device.mode.value,
                 device.badge_title,
                 device.badge_subtitle,
-                "#2ecc71"
+                device.color
             )
 
     # -----------------------------------------------------------------
@@ -716,7 +737,7 @@ class JITConnectionWorker(QThread):
     def __init__(self, target_modes: Optional[List[DeviceMode]] = None,
                  timeout_seconds: int = 60, poll_interval: float = 0.25, parent=None):
         super().__init__(parent)
-        self.target_modes = target_modes or [DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.NORMAL]
+        self.target_modes = target_modes or [DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.ADB, DeviceMode.NORMAL]
         self.timeout_seconds = timeout_seconds
         self.poll_interval = poll_interval
         self._running = False
