@@ -492,7 +492,10 @@ class ActionTabsPanel(QFrame):
         btn_adb_info = ActionButton("ADB", "READ FULL SYSTEM SPECS", "Lecture version Android, build, IMEI via ADB", COLOR_CYAN)
         btn_adb_info.clicked.connect(lambda: self.action_triggered.emit("ADB_READ_INFO", {}))
 
-        btn_auth_bypass = ActionButton("BROM", "DISABLE DAA / SLA (BYPASS)", "Désactive la signature de sécurité MediaTek", COLOR_WARNING)
+        btn_reboot_fb = ActionButton("ADB", "REBOOT TO FASTBOOT", "Redémarre l'appareil en mode Fastboot via ADB", COLOR_WARNING)
+        btn_reboot_fb.clicked.connect(lambda: self.action_triggered.emit("REBOOT_FASTBOOT", {}))
+
+        btn_auth_bypass = ActionButton("BROM", "DISABLE DAA / SLA (BYPASS)", "Désactive la signature de sécurité MediaTek", COLOR_PURPLE)
         btn_auth_bypass.clicked.connect(lambda: self.action_triggered.emit("BROM_AUTH_BYPASS", {}))
 
         grid.addWidget(btn_reset, 0, 0)
@@ -500,7 +503,8 @@ class ActionTabsPanel(QFrame):
         grid.addWidget(btn_read_info, 1, 0)
         grid.addWidget(btn_remove_demo, 1, 1)
         grid.addWidget(btn_adb_info, 2, 0)
-        grid.addWidget(btn_auth_bypass, 2, 1)
+        grid.addWidget(btn_reboot_fb, 2, 1)
+        grid.addWidget(btn_auth_bypass, 3, 0)
 
         layout.addLayout(grid)
         layout.addStretch()

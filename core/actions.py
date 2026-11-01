@@ -717,11 +717,12 @@ def reboot_device(
 
     # 4.2 Mode ADB / Débogage actif
     elif "ADB" in mode_str or (device_identifier and device_identifier.startswith("ADB:")):
+        if target_reboot == "fastboot":
+            return reboot_to_fastboot(device_serial=device_id, log_callback=log_callback)
+
         target_args = ["-s", device_id] if device_id else []
         cmd_args = ["reboot"]
-        if target_reboot == "fastboot":
-            cmd_args = ["reboot", "bootloader"]
-        elif target_reboot == "recovery":
+        if target_reboot == "recovery":
             cmd_args = ["reboot", "recovery"]
 
         _log(f"[+] Envoi : adb {' '.join(cmd_args)}...", "info")
@@ -763,6 +764,95 @@ def reboot_device(
             return ActionResult(success=True, message="Redémarrage réussi.")
         _log("[WARNING] Aucun protocole actif ne permet d'envoyer la commande de redémarrage direct.", "warning")
         return ActionResult(success=False, message="Protocole indisponible pour redémarrage à distance.")
+
+
+# =====================================================================
+# 4.bis Action Spécifique : REBOOT TO FASTBOOT (ADB)
+# =====================================================================
+
+def reboot_to_fastboot(
+    device_serial: Optional[str] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Exécute proprement le redémarrage vers le mode Fastboot / Bootloader via ADB.
+    Commande :
+      subprocess.run(["adb", "reboot", "bootloader"], capture_output=True, text=True, timeout=5)
+
+    Gère les retours d'erreurs (ex: 'device not found', 'device offline', 'unauthorized').
+    """
+    def _log(msg: str, level: str = "info"):
+        if log_callback:
+            log_callback(msg, level)
+
+    _log("[INFO] Envoi de la commande de redémarrage en mode Fastboot via ADB...", "info")
+
+    adb_bin = find_adb() or "adb"
+    cmd = [adb_bin]
+    if device_serial and not str(device_serial).upper().startswith("COM"):
+        clean_serial = str(device_serial)[4:] if str(device_serial).startswith("ADB:") else str(device_serial)
+        clean_serial = clean_serial.strip()
+        if clean_serial:
+            cmd.extend(["-s", clean_serial])
+    cmd.extend(["reboot", "bootloader"])
+
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=creationflags,
+            startupinfo=startupinfo
+        )
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        output = (stderr + "\n" + stdout).strip()
+        out_lower = output.lower()
+
+        # Contrôle des erreurs fréquentes du pont ADB
+        if "no devices/emulators found" in out_lower or "device not found" in out_lower:
+            msg_err = "Erreur : Appareil introuvable par le pont ADB (device not found)."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(success=False, message=msg_err)
+
+        if "device offline" in out_lower:
+            msg_err = "Erreur : L'appareil est hors-ligne (device offline)."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(success=False, message=msg_err)
+
+        if "unauthorized" in out_lower:
+            msg_err = "Erreur : Débogage USB non autorisé sur l'écran du smartphone."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(success=False, message=msg_err)
+
+        if proc.returncode == 0 or not output or "error" not in out_lower:
+            _log("[SUCCESS] L'appareil redémarre en mode Fastboot.", "success")
+            return ActionResult(success=True, message="L'appareil redémarre en mode Fastboot.")
+        else:
+            _log(f"[ERROR] Échec de la commande ADB : {output}", "error")
+            return ActionResult(success=False, message=output)
+
+    except FileNotFoundError:
+        msg = "Erreur : Exécutable ADB introuvable."
+        _log(f"[ERROR] {msg}", "error")
+        return ActionResult(success=False, message=msg)
+    except subprocess.TimeoutExpired:
+        msg = "Erreur : Délai dépassé (timeout 5s) lors de l'envoi de la commande ADB."
+        _log(f"[ERROR] {msg}", "error")
+        return ActionResult(success=False, message=msg)
+    except Exception as e:
+        msg = f"Erreur inattendue : {str(e)}"
+        _log(f"[ERROR] {msg}", "error")
+        return ActionResult(success=False, message=msg)
 
 
 # =====================================================================

@@ -416,6 +416,23 @@ class ToolsTab(QWidget):
 
     def _on_reboot_clicked(self, target: str):
         """Déclenche le redémarrage direct vers la cible choisie."""
+        if target == "fastboot":
+            dev = self.current_device
+            if not dev:
+                main_win = self.window()
+                if hasattr(main_win, "detector"):
+                    dev = main_win.detector.get_current_device()
+
+            # Sécurité d'exécution : Vérifier d'abord si un appareil est bien connecté en mode ADB
+            if not dev or dev.mode != DeviceMode.ADB:
+                self._append_log("Erreur : Aucun appareil en mode ADB actif", "warning")
+                return
+
+            from core.actions import reboot_to_fastboot
+            serial = dev.serial_number or dev.identifier
+            reboot_to_fastboot(device_serial=serial, log_callback=self._append_log)
+            return
+
         label = {"normal": "Normal", "fastboot": "Fastboot", "recovery": "Recovery"}.get(target, target)
         self._append_log(f"[+] Envoi de l'instruction de redémarrage ({label})...", "info")
 
@@ -513,3 +530,9 @@ class ToolsTab(QWidget):
     def on_device_disconnected(self):
         self.device_connected = False
         self.current_device = None
+
+    def set_device(self, device: Optional[ConnectedDevice]):
+        if device:
+            self.on_device_connected(device)
+        else:
+            self.on_device_disconnected()

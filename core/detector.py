@@ -248,12 +248,28 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
         startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
         startupinfo.wShowWindow = 0  # SW_HIDE
 
-    # 1. Kill propre de tout daemon ADB figé ou obsolète
+    # 1. Purge vigoureuse des processus adb orphelins ou figés sous Windows
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "adb.exe", "/T"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1,
+                creationflags=creationflags,
+                startupinfo=startupinfo
+            )
+        except Exception:
+            pass
+
+    # 2. Kill standard du serveur ADB
     try:
         subprocess.run(
             [adb_bin, "kill-server"],
-            capture_output=True,
-            text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=2,
             creationflags=creationflags,
             startupinfo=startupinfo
@@ -263,14 +279,20 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
     except Exception:
         pass
 
-    # 2. Démarrage du serveur ADB propre
+    # 3. Démarrage du serveur ADB propre sans héritage de descripteurs de pipe
+    # (Évite le deadlock où le daemon en arrière-plan maintient le pipe stdout ouvert)
     try:
+        detached_flags = creationflags
+        if sys.platform == "win32":
+            detached_flags |= getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+
         res = subprocess.run(
             [adb_bin, "start-server"],
-            capture_output=True,
-            text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=2,
-            creationflags=creationflags,
+            creationflags=detached_flags,
             startupinfo=startupinfo
         )
         return res.returncode == 0

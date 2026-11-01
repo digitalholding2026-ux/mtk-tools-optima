@@ -418,16 +418,24 @@ class MainWindow(QMainWindow):
             )
 
     def _execute_reboot_direct(self, target: str):
+        if target == "fastboot":
+            current = self.detector.get_current_device()
+            # Sécurité d'exécution : vérifier d'abord si un appareil est bien connecté en mode ADB
+            if not current or current.mode != DeviceMode.ADB:
+                self._append_log("Erreur : Aucun appareil en mode ADB actif", "warning")
+                return
+
+            from core.actions import reboot_to_fastboot
+            serial = current.serial_number or current.identifier
+            reboot_to_fastboot(device_serial=serial, log_callback=self._append_log)
+            return
+
         current = self.detector.get_current_device()
         if current:
             target_id = current.port or current.serial_number or current.identifier
             reboot_device(current.mode, target_id, target_reboot=target, log_callback=self._append_log)
         else:
-            self.run_action_with_assistant(
-                action_name=f"Reboot {target.capitalize()}",
-                operation_func=lambda dev: reboot_device(dev.mode, dev.port or dev.serial_number or dev.identifier, target_reboot=target, log_callback=self._append_log),
-                target_modes=[DeviceMode.FASTBOOT, DeviceMode.ADB, DeviceMode.BROM, DeviceMode.NORMAL]
-            )
+            self._append_log(f"[WARNING] Aucun appareil connecté pour redémarrage vers {target}.", "warning")
 
     def run_action_with_assistant(
         self,
