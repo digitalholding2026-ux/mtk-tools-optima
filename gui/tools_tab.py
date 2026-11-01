@@ -10,6 +10,7 @@ Comprend :
   - Section Outil Flash Scatter (Fichiers firmware MediaTek)
 """
 
+from typing import Optional, List, Dict, Any, Callable
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel,
     QPushButton, QTextEdit, QProgressBar, QMessageBox, QFrame, QFileDialog, QLineEdit
