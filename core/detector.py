@@ -211,6 +211,76 @@ KEYWORDS_NORMAL = [
 
 
 # =====================================================================
+# Nettoyage et initialisation autonome du serveur ADB
+# =====================================================================
+
+def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
+    """
+    Nettoie et réinitialise proprement le serveur ADB au démarrage de l'outil.
+    Exécute de façon robuste et masquée (CREATE_NO_WINDOW sous Windows) :
+      subprocess.run(["adb", "kill-server"], capture_output=True, timeout=2)
+      subprocess.run(["adb", "start-server"], capture_output=True, timeout=2)
+
+    Garantit que le daemon ADB est propre, réactif et actif dès le lancement,
+    rendant Optima MTK Tool totalement autonome sans dépendre d'un outil tiers.
+    """
+    if not adb_bin:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        embedded_candidates = [
+            os.path.join(base_dir, "tools", "adb.exe"),
+            os.path.join(base_dir, "tools", "adb"),
+            os.path.join(base_dir, "platform-tools", "adb.exe"),
+            os.path.join(base_dir, "assets", "bin", "adb.exe"),
+            os.path.join(base_dir, "bin", "adb.exe"),
+        ]
+        for path in embedded_candidates:
+            if os.path.isfile(path) and (sys.platform != "win32" or os.access(path, os.X_OK)):
+                adb_bin = path
+                break
+        if not adb_bin:
+            adb_bin = shutil.which("adb") or shutil.which("adb.exe") or "adb"
+
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    # 1. Kill propre de tout daemon ADB figé ou obsolète
+    try:
+        subprocess.run(
+            [adb_bin, "kill-server"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            creationflags=creationflags,
+            startupinfo=startupinfo
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError):
+        pass
+    except Exception:
+        pass
+
+    # 2. Démarrage du serveur ADB propre
+    try:
+        res = subprocess.run(
+            [adb_bin, "start-server"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            creationflags=creationflags,
+            startupinfo=startupinfo
+        )
+        return res.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError):
+        return False
+    except Exception:
+        return False
+
+
+# =====================================================================
 # Service de détection en arrière-plan
 # =====================================================================
 
@@ -325,6 +395,13 @@ class DeviceDetector(QThread):
         """Démarre le thread de surveillance en continu."""
         if self.isRunning():
             return
+
+        # Réinitialisation propre du serveur ADB dès le démarrage pour autonomie totale
+        try:
+            reset_adb_server(self._adb_bin)
+        except Exception:
+            pass
+
         self._running = True
         self.start()
         self.log_message.emit("Service de détection automatique USB démarré (BROM / Fastboot / ADB / Normal).", "info")
@@ -429,18 +506,25 @@ class DeviceDetector(QThread):
         Collecte l'ensemble des périphériques détectés en respectant la hiérarchie :
           BROM > FASTBOOT > ADB > USB_NORMAL
 
-        Règle importante : ADB n'est déclaré que si 'adb devices' répond réellement
-        avec un appareil en état 'device' ou 'recovery'. Le statut 'unauthorized'
-        est traité comme USB_NORMAL (débogage non autorisé).
+        RÈGLES D'AUTONOMIE & PERFORMANCE :
+        1. Ports COM inspectés passivement via list_ports.comports() (zéro serial.Serial()).
+        2. Priorité BROM immédiate : Si un port BROM ou Preloader est détecté, on le retourne
+           instantanément sans perdre de temps à appeler fastboot/adb pour ne pas rater
+           la fenêtre critique d'amorçage BootROM MediaTek.
+        3. ADB n'est déclaré que si 'adb devices' répond réellement (state 'device'/'recovery').
         """
         results: List[ConnectedDevice] = []
 
-        # 1. Analyse des ports COM (BROM, Preloader, AT/Modem)
+        # 1. Analyse passive des ports COM (BROM, Preloader, AT/Modem)
         try:
             com_devices = self._scan_com_ports()
             results.extend(com_devices)
         except Exception:
             pass
+
+        # Si un mode BROM ou Preloader est déjà détecté, priorité absolue : retour immédiat
+        if any(d.mode == DeviceMode.BROM for d in results):
+            return results
 
         # 2. Analyse Fastboot (via commande 'fastboot devices')
         try:
@@ -468,17 +552,27 @@ class DeviceDetector(QThread):
     # 1. Détection Ports COM / USB (MediaTek BROM, Preloader, AT)
     # -----------------------------------------------------------------
     def _scan_com_ports(self) -> List[ConnectedDevice]:
-        """Inspecte les ports COM disponibles via serial.tools.list_ports."""
+        """
+        Inspecte les ports COM disponibles STRICTEMENT via serial.tools.list_ports.comports().
+
+        RÈGLE ABSOLUE DE SÉCURITÉ MATÉRIELLE (Spécification d'Atelier) :
+        Il est formellement INTERDIT d'instancier serial.Serial() ou d'ouvrir
+        un port en lecture/écriture pendant la phase de scan/détection en arrière-plan.
+        L'ouverture d'un port série BROM/Preloader le verrouille immédiatement
+        et bloque tout le système ou les opérations ultérieures de flash/FRP.
+        On lit EXCLUSIVEMENT les attributs passifs (port_info.device, description, hwid, vid, pid).
+        """
         detected = []
         if not HAS_SERIAL:
             return detected
 
         try:
+            # Inspection 100% passive via les descripteurs matériels Windows SetupAPI / Registry
             for p in list_ports.comports():
                 dev = self._classify_com_port(p)
                 if dev:
                     detected.append(dev)
-        except Exception as e:
+        except Exception:
             # Évite d'interrompre la boucle de détection en cas d'erreur ponctuelle d'accès USB
             pass
 
@@ -573,12 +667,48 @@ class DeviceDetector(QThread):
     # -----------------------------------------------------------------
     # 2. Détection Fastboot ('fastboot devices')
     # -----------------------------------------------------------------
+    def _execute_fastboot_devices(self) -> Optional[str]:
+        """
+        Exécute 'fastboot devices' de façon robuste selon les spécifications :
+        - subprocess.run([fb_bin, "devices"], capture_output=True, text=True, timeout=2)
+        - Évite le blocage indéfini si le service ne répond pas
+        - Masque la fenêtre cmd console sous Windows (CREATE_NO_WINDOW / SW_HIDE)
+        - Capture proprement FileNotFoundError, TimeoutExpired, etc.
+        """
+        fb_bin = self._find_fastboot_executable() or "fastboot"
+        cmd = [fb_bin, "devices"]
+
+        creationflags = 0
+        startupinfo = None
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+            startupinfo.wShowWindow = 0  # SW_HIDE
+
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=creationflags,
+                startupinfo=startupinfo
+            )
+            if res.stdout:
+                return res.stdout
+            if res.returncode == 0:
+                return res.stdout or ""
+            return None
+        except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError):
+            return None
+        except Exception:
+            return None
+
     def _scan_fastboot(self) -> Optional[ConnectedDevice]:
         """Exécute 'fastboot devices' sans bloquer l'UI et sans pop-up de console cmd."""
         try:
-            fb_bin = self._find_fastboot_executable() or "fastboot"
-            cmd = [fb_bin, "devices"]
-            output = self._run_command_silent(cmd, timeout=2.0)
+            output = self._execute_fastboot_devices()
             if not output:
                 return None
 
@@ -749,8 +879,8 @@ class DeviceDetector(QThread):
     # -----------------------------------------------------------------
     # Exécution silencieuse sous Windows (sans fenêtre noire cmd)
     # -----------------------------------------------------------------
-    def _run_command_silent(self, cmd: List[str], timeout: float = 1.0) -> Optional[str]:
-        """Lance une commande externe de manière totalement transparente."""
+    def _run_command_silent(self, cmd: List[str], timeout: float = 2.0) -> Optional[str]:
+        """Lance une commande externe de manière totalement transparente avec timeout strict."""
         creationflags = 0
         startupinfo = None
 
@@ -764,8 +894,7 @@ class DeviceDetector(QThread):
         try:
             res = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=timeout,
                 creationflags=creationflags,

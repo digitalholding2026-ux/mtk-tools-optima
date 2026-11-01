@@ -20,6 +20,13 @@ from gui.main_window import MainWindow
 
 def main():
     """Fonction principale de lancement de l'application."""
+    # 1. Nettoyage et initialisation autonome du serveur ADB au lancement
+    try:
+        from core.detector import reset_adb_server
+        reset_adb_server()
+    except Exception:
+        pass
+
     # Activation du scaling haute DPI sur Windows
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)

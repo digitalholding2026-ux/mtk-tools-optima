@@ -12,7 +12,8 @@ from core.detector import (
     MTK_VENDORS,
     MTK_BROM_PIDS,
     MTK_PRELOADER_PIDS,
-    MTK_NORMAL_PIDS
+    MTK_NORMAL_PIDS,
+    reset_adb_server
 )
 
 # Alias direct pour conserver la compatibilité ascendante
@@ -28,4 +29,5 @@ __all__ = [
     "MTK_BROM_PIDS",
     "MTK_PRELOADER_PIDS",
     "MTK_NORMAL_PIDS",
+    "reset_adb_server",
 ]
