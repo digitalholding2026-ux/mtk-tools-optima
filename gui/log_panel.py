@@ -3,7 +3,7 @@
 Panneau de logs en temps réel pour l'application Optima MTK Tool.
 """
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 
