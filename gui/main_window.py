@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Fenêtre principale d'Optima MTK Tool — Disposition TFT Unlock Tool Pro.
-
-Architecture en 3 colonnes avec barre des marques :
-  1. En-tête des Marques (Top Bar) : MediaTek, Infinix, Tecno, Samsung, Xiaomi, Oppo/Realme, Vivo
-  2. Bandeau de statut permanent en temps réel (🔴 / 🟢 / 🟡)
-  3. Disposition en 3 panneaux principaux :
-       - Panneau Gauche  : Liste & Filtrage des modèles et chipsets par marque
-       - Panneau Central : Onglets catégorisés ([SECURITY/FRP], [FUNCTION], [FASTBOOT], [RECOVERY], [META])
-       - Panneau Droit   : Gestionnaire de connexion en direct (Hardware Status, Live Device Card, Guide)
-  4. Console de logs détaillée en bas (Consolas monospace, codes couleur en temps réel)
+Fenêtre principale d'Optima MTK Tool Pro.
+Layouts fluides 100% dynamiques, sans cadres bloquants, avec console redimensionnable :
+  1. En-tête des Marques (Top Bar compacte 44px)
+  2. Bandeau de statut permanent en ligne unique (38px)
+  3. Espace de travail en 3 colonnes à haute visibilité :
+       - Colonne Gauche  : Liste & Filtrage des modèles/SoC
+       - Colonne Centrale : Boutons d'action clairs, spacieux (min 44px)
+       - Colonne Droite   : Statut matériel direct et carte de synchronisation
+  4. QSplitter vertical séparant l'espace de travail et la console de logs
 """
 
 from typing import Optional, List, Callable, Dict, Any
@@ -36,19 +35,19 @@ from core.actions import (
 
 
 class MainWindow(QMainWindow):
-    """Fenêtre principale professionnelle inspirée des suites TFT Unlock / UnlockTool."""
+    """Fenêtre principale professionnelle TFT Unlock Tool Pro d'Optima MTK Tool."""
 
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Optima MTK Tool Pro — Solution d'Atelier & Déverrouillage MediaTek")
-        self.setMinimumSize(1220, 800)
-        self.resize(1300, 880)
+        self.setMinimumSize(1100, 720)
+        self.resize(1240, 820)
 
-        # Initialisation du moteur de communication et du détecteur en arrière-plan
+        # Moteur de communication & détecteur d'arrière-plan
         self.mtk_comm = MTKCommunication()
         self.detector = DeviceDetector(interval=1.5)
-        self.com_detector = self.detector  # Rétrocompatibilité
+        self.com_detector = self.detector
 
         # Construction de l'interface
         self._setup_ui()
@@ -56,23 +55,22 @@ class MainWindow(QMainWindow):
         self._create_menu_bar()
         self._create_status_bar()
 
-        # Connexion des signaux de détection USB automatique
+        # Connexions des signaux
         self.detector.device_detected.connect(self._on_device_detected)
         self.detector.device_lost.connect(self._on_device_lost)
         self.detector.status_updated.connect(self._on_status_updated)
         self.detector.status_updated.connect(self.status_banner.update_status)
         self.detector.log_message.connect(self._append_log)
 
-        # Message de démarrage dans la console
-        self.log_panel.add_log("Optima MTK Tool Pro v2.0 initialisé (Moteur Multi-Threadé actif).", "success")
-        self.log_panel.add_log("Base de données des modèles chargée : Infinix, Tecno, Samsung, Xiaomi, Oppo, Vivo, MediaTek.", "info")
+        # Message d'accueil
+        self.log_panel.add_log("Optima MTK Tool Pro initialisé avec succès.", "success")
         self.log_panel.add_log("Surveillance des liaisons matérielles en arrière-plan prête.", "info")
 
-        # Lancement de la surveillance continue
+        # Démarrage de la surveillance
         self.detector.start_monitoring()
 
     # ------------------------------------------------------------------
-    # Assemblage de l'interface graphique
+    # Assemblage de l'interface graphique (Zéro conteneur bloquant)
     # ------------------------------------------------------------------
     def _setup_ui(self):
         central_widget = QWidget()
@@ -83,42 +81,51 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # ── 1. En-tête des Marques (Top Bar TFT) ─────────────────────
+        # ── 1. En-tête des Marques (Top Bar 44px) ────────────────────
         self.brand_bar = BrandTabBar()
         self.brand_bar.brand_changed.connect(self._on_brand_changed)
         main_layout.addWidget(self.brand_bar)
 
-        # ── 2. Bandeau d'état permanent en temps réel ────────────────
+        # ── 2. Bandeau d'état permanent en ligne unique (38px) ───────
         self.status_banner = DeviceStatusBanner()
         main_layout.addWidget(self.status_banner)
 
-        # ── 3. Corps principal : Disposition en 3 Colonnes ───────────
+        # ── 3. QSplitter Vertical (Espace de travail + Console) ───────
+        self.vertical_splitter = QSplitter(Qt.Vertical)
+        self.vertical_splitter.setObjectName("verticalSplitter")
+        self.vertical_splitter.setHandleWidth(4)
+
+        # Espace de travail en 3 Colonnes
         workspace_frame = QFrame()
         workspace_frame.setObjectName("workspaceFrame")
         workspace_layout = QHBoxLayout(workspace_frame)
-        workspace_layout.setContentsMargins(10, 8, 10, 8)
-        workspace_layout.setSpacing(10)
+        workspace_layout.setContentsMargins(6, 6, 6, 6)
+        workspace_layout.setSpacing(6)
 
-        # Colonne Gauche : Sélection des Modèles / Chipsets
+        # Colonne Gauche : Modèles & SoC
         self.model_selector = ModelSelectorPanel()
         self.model_selector.model_selected.connect(self._on_model_selected)
         workspace_layout.addWidget(self.model_selector)
 
-        # Colonne Centrale : Onglets des Fonctionnalités par Catégorie
+        # Colonne Centrale : Boutons d'Action & Onglets
         self.action_tabs = ActionTabsPanel()
         self.action_tabs.action_triggered.connect(self._handle_action_triggered)
         workspace_layout.addWidget(self.action_tabs, stretch=1)
 
-        # Colonne Droite : Gestionnaire de Connexion en Temps Réel
+        # Colonne Droite : Liaison Matérielle & Statut
         self.conn_manager = ConnectionManagerPanel()
         self.conn_manager.rescan_requested.connect(self._on_rescan_clicked)
         workspace_layout.addWidget(self.conn_manager)
 
-        main_layout.addWidget(workspace_frame, stretch=1)
+        self.vertical_splitter.addWidget(workspace_frame)
 
-        # ── 4. Console de Logs Détaillée en Bas ───────────────────────
+        # Console de logs détaillée en bas
         self.log_panel = LogPanel()
-        main_layout.addWidget(self.log_panel)
+        self.vertical_splitter.addWidget(self.log_panel)
+
+        # Répartition équilibrée de l'espace (540px pour les actions, 180px pour les logs)
+        self.vertical_splitter.setSizes([540, 180])
+        main_layout.addWidget(self.vertical_splitter, stretch=1)
 
     # ------------------------------------------------------------------
     # Menus et barre de statut
@@ -126,13 +133,11 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self):
         menubar = self.menuBar()
 
-        # Menu Fichier
         menu_file = menubar.addMenu("&Fichier")
         act_exit = menu_file.addAction("Quitter")
         act_exit.setShortcut("Ctrl+Q")
         act_exit.triggered.connect(self.close)
 
-        # Menu Outils
         menu_tools = menubar.addMenu("&Outils")
         act_rescan = menu_tools.addAction("Forcer l'analyse USB (F5)")
         act_rescan.setShortcut("F5")
@@ -141,7 +146,6 @@ class MainWindow(QMainWindow):
         act_clear = menu_tools.addAction("Effacer la console")
         act_clear.triggered.connect(self.log_panel.clear_logs)
 
-        # Menu Marques
         menu_brands = menubar.addMenu("&Marques")
         for b_id, name in [
             ("MEDIATEK", "MediaTek Universal"),
@@ -155,7 +159,6 @@ class MainWindow(QMainWindow):
             act_b = menu_brands.addAction(name)
             act_b.triggered.connect(lambda ch, brand=b_id: self.brand_bar.select_brand(brand))
 
-        # Menu Aide
         menu_help = menubar.addMenu("&Aide")
         act_about = menu_help.addAction("À propos d'Optima MTK Tool Pro")
         act_about.triggered.connect(self._show_about)
@@ -182,6 +185,13 @@ class MainWindow(QMainWindow):
             }}
             QFrame#workspaceFrame {{
                 background-color: {COLOR_DARK_BG};
+            }}
+            QSplitter::handle:vertical {{
+                background-color: {COLOR_BORDER};
+                height: 4px;
+            }}
+            QSplitter::handle:vertical:hover {{
+                background-color: {COLOR_ACCENT_BLUE};
             }}
             QStatusBar {{
                 background-color: {COLOR_PANEL_BG};
@@ -211,19 +221,16 @@ class MainWindow(QMainWindow):
         """)
 
     # ------------------------------------------------------------------
-    # Gestion des événements de sélection de marque et de modèle
+    # Navigation et événements
     # ------------------------------------------------------------------
     def _on_brand_changed(self, brand_id: str):
-        """Met à jour le panneau de gauche lors d'un clic sur la barre des marques."""
         self.model_selector.load_brand(brand_id)
         self._append_log(f"[+] Marque sélectionnée : {brand_id.upper()}", "info")
 
     def _on_model_selected(self, model_data: Dict[str, Any]):
-        """Transmet le modèle choisi au panneau central d'actions."""
         self.action_tabs.update_selected_model(model_data)
 
     def _on_rescan_clicked(self):
-        """Force l'analyse immédiate des liaisons USB."""
         self._append_log("[+] Analyse immédiate des ports USB/Fastboot déclenchée...", "info")
         self.detector.scan_now()
 
@@ -231,13 +238,11 @@ class MainWindow(QMainWindow):
         pass
 
     # ------------------------------------------------------------------
-    # Détection USB en temps réel & Synchronisation des panneaux
+    # Détection USB en temps réel
     # ------------------------------------------------------------------
     def _on_device_detected(self, device: ConnectedDevice):
-        """Notifie l'ensemble des panneaux dès qu'un appareil est branché."""
         self.mtk_comm.set_device(device)
 
-        # 1. Mise à jour du bandeau de statut supérieur
         model_name = device.description or "Périphérique MediaTek"
         if device.details.get("product_name"):
             model_name = device.details["product_name"]
@@ -249,18 +254,13 @@ class MainWindow(QMainWindow):
             port_name=loc
         )
 
-        # 2. Mise à jour du gestionnaire de connexion (Panneau de droite)
         self.conn_manager.update_connection_state(device)
-
-        # 3. Barre de statut
         self.status_label.setText(f"Appareil connecté : {device.mode.value} ({loc})")
         self.status_label.setStyleSheet(f"color: {device.color}; font-weight: bold;")
 
     def _on_device_lost(self, device: ConnectedDevice):
-        """Notifie la déconnexion."""
         self.mtk_comm.disconnect()
 
-        # Remise à zéro du bandeau
         self.status_banner.update_status(
             "NONE",
             "🔴 Aucun appareil connecté",
@@ -268,24 +268,21 @@ class MainWindow(QMainWindow):
             COLOR_DANGER
         )
 
-        # Remise à zéro du gestionnaire de connexion
         self.conn_manager.update_connection_state(None)
-
         self.status_label.setText("Aucun appareil connecté")
         self.status_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
 
     # ------------------------------------------------------------------
-    # Routeur d'Exécution des Actions (TFT Category Actions)
+    # Routeur d'actions avec retour en direct
     # ------------------------------------------------------------------
     def _handle_action_triggered(self, action_key: str, options: dict):
-        """Achemine l'action déclenchée depuis le panneau central vers le moteur."""
         selected_model = self.model_selector.get_selected_model()
         model_name = selected_model.get("model", "Appareil") if selected_model else "Appareil"
 
-        self._append_log(f"==================================================", "info")
+        self._append_log("--------------------------------------------------", "info")
         self._append_log(f"[+] Action déclenchée : {action_key} (Cible : {model_name})", "info")
 
-        # ── 1. Catégorie SECURITY / FRP ──────────────────────────────
+        # ── 1. SECURITY / FRP ─────────────────────────────────────────
         if action_key == "BROM_ERASE_FRP":
             self.run_action_with_assistant(
                 action_name="[BROM] Effacer FRP",
@@ -331,7 +328,7 @@ class MainWindow(QMainWindow):
                 target_modes=[DeviceMode.FASTBOOT]
             )
 
-        # ── 2. Catégorie FUNCTION ────────────────────────────────────
+        # ── 2. FUNCTION ───────────────────────────────────────────────
         elif action_key == "BROM_FACTORY_RESET":
             reply = QMessageBox.warning(
                 self, "Confirmation Factory Reset",
@@ -382,7 +379,7 @@ class MainWindow(QMainWindow):
                 target_modes=[DeviceMode.BROM]
             )
 
-        # ── 3. Catégorie FASTBOOT ────────────────────────────────────
+        # ── 3. FASTBOOT ───────────────────────────────────────────────
         elif action_key == "FASTBOOT_GETVAR":
             self.run_action_with_assistant(
                 action_name="[FASTBOOT] Getvar All",
@@ -413,7 +410,7 @@ class MainWindow(QMainWindow):
                 target_modes=[DeviceMode.FASTBOOT]
             )
 
-        # ── 4. Catégorie RECOVERY ────────────────────────────────────
+        # ── 4. RECOVERY ───────────────────────────────────────────────
         elif action_key == "RECOVERY_READ_INFO":
             self.run_action_with_assistant(
                 action_name="[RECOVERY] Lire Infos",
@@ -428,7 +425,7 @@ class MainWindow(QMainWindow):
                 target_modes=[DeviceMode.FASTBOOT, DeviceMode.BROM]
             )
 
-        # ── 5. Catégorie META ────────────────────────────────────────
+        # ── 5. META ───────────────────────────────────────────────────
         elif action_key in ("META_READ_INFO", "META_FACTORY_RESET", "META_BACKUP_NV", "META_REBOOT_NORMAL"):
             self.run_action_with_assistant(
                 action_name=f"[META] {action_key}",
@@ -437,7 +434,6 @@ class MainWindow(QMainWindow):
             )
 
     def _execute_reboot_direct(self, target: str):
-        """Exécute un redémarrage direct si un appareil est déjà synchronisé."""
         current = self.detector.get_current_device()
         if current:
             target_id = current.port or current.serial_number or current.identifier
@@ -449,9 +445,6 @@ class MainWindow(QMainWindow):
                 target_modes=[DeviceMode.FASTBOOT, DeviceMode.ADB, DeviceMode.BROM, DeviceMode.NORMAL]
             )
 
-    # ------------------------------------------------------------------
-    # Assistant Just-In-Time (JIT) & Log helper
-    # ------------------------------------------------------------------
     def run_action_with_assistant(
         self,
         action_name: str,
@@ -460,11 +453,6 @@ class MainWindow(QMainWindow):
         custom_instructions: Optional[str] = None,
         timeout: int = 60
     ) -> bool:
-        """
-        Exécution avec vérification d'état :
-          - Si un appareil compatible est déjà présent : lancement immédiat sans popup.
-          - Sinon : ouverture de l'assistant visuel guidé.
-        """
         current = self.detector.get_current_device()
         if current is not None:
             mode_ok = (target_modes is None) or (current.mode in target_modes)
@@ -512,7 +500,6 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
-        """Fermeture propre de l'application."""
         if self.mtk_comm.is_connected():
             reply = QMessageBox.question(
                 self, "Quitter l'application",

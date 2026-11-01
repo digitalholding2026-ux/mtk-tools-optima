@@ -39,11 +39,11 @@ class SpecCard(QFrame):
     def __init__(self, title: str, default_value: str = "—", icon: str = "📱", parent=None):
         super().__init__(parent)
         self.setObjectName("specCard")
-        self.setFixedHeight(82)
+        self.setMinimumHeight(64)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(14)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(12)
 
         # Icône visuelle
         self.lbl_icon = QLabel(icon)
@@ -129,8 +129,8 @@ class DeviceInfoTab(QWidget):
         self.btn_read_info = QPushButton("📋 Lire les informations")
         self.btn_read_info.setObjectName("btnReadInfo")
         self.btn_read_info.setCursor(Qt.PointingHandCursor)
-        self.btn_read_info.setFixedHeight(46)
-        self.btn_read_info.setMinimumWidth(230)
+        self.btn_read_info.setMinimumHeight(40)
+        self.btn_read_info.setMinimumWidth(220)
         self.btn_read_info.setFont(QFont("Segoe UI", 11, QFont.Bold))
         self.btn_read_info.clicked.connect(self._on_read_info_clicked)
         action_layout.addWidget(self.btn_read_info)

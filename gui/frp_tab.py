@@ -148,7 +148,7 @@ class FRPResetTab(QWidget):
 
         self.btn_frp_fastboot = QPushButton("⚡ Effacer FRP (Méthode Fastboot)")
         self.btn_frp_fastboot.setObjectName("btnFastboot")
-        self.btn_frp_fastboot.setFixedHeight(44)
+        self.btn_frp_fastboot.setMinimumHeight(40)
         self.btn_frp_fastboot.setCursor(Qt.PointingHandCursor)
         self.btn_frp_fastboot.setFont(QFont("Segoe UI", 11, QFont.Bold))
         self.btn_frp_fastboot.clicked.connect(self._on_frp_fastboot_clicked)
@@ -182,7 +182,7 @@ class FRPResetTab(QWidget):
 
         self.btn_frp_brom = QPushButton("🛡️ Effacer FRP (Méthode BROM/Preloader)")
         self.btn_frp_brom.setObjectName("btnBrom")
-        self.btn_frp_brom.setFixedHeight(44)
+        self.btn_frp_brom.setMinimumHeight(40)
         self.btn_frp_brom.setCursor(Qt.PointingHandCursor)
         self.btn_frp_brom.setFont(QFont("Segoe UI", 11, QFont.Bold))
         self.btn_frp_brom.clicked.connect(self._on_frp_brom_clicked)

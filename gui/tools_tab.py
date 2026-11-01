@@ -126,7 +126,7 @@ class ToolsTab(QWidget):
 
         self.btn_factory_reset = QPushButton("🧹 Lancer le Factory Reset")
         self.btn_factory_reset.setObjectName("btnReset")
-        self.btn_factory_reset.setFixedHeight(44)
+        self.btn_factory_reset.setMinimumHeight(40)
         self.btn_factory_reset.setCursor(Qt.PointingHandCursor)
         self.btn_factory_reset.setFont(QFont("Segoe UI", 11, QFont.Bold))
         self.btn_factory_reset.clicked.connect(self._on_factory_reset_clicked)
@@ -158,7 +158,7 @@ class ToolsTab(QWidget):
 
         self.btn_reboot_normal = QPushButton("🔄 Reboot Normal")
         self.btn_reboot_normal.setObjectName("btnRebootNormal")
-        self.btn_reboot_normal.setFixedHeight(44)
+        self.btn_reboot_normal.setMinimumHeight(38)
         self.btn_reboot_normal.setCursor(Qt.PointingHandCursor)
         self.btn_reboot_normal.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_reboot_normal.setToolTip("Redémarre l'appareil normalement dans le système d'exploitation Android.")
@@ -166,7 +166,7 @@ class ToolsTab(QWidget):
 
         self.btn_reboot_fastboot = QPushButton("⚡ Reboot Fastboot")
         self.btn_reboot_fastboot.setObjectName("btnRebootFastboot")
-        self.btn_reboot_fastboot.setFixedHeight(44)
+        self.btn_reboot_fastboot.setMinimumHeight(38)
         self.btn_reboot_fastboot.setCursor(Qt.PointingHandCursor)
         self.btn_reboot_fastboot.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_reboot_fastboot.setToolTip("Redémarre l'appareil dans le chargeur d'amorçage (Bootloader / Fastboot).")
@@ -174,7 +174,7 @@ class ToolsTab(QWidget):
 
         self.btn_reboot_recovery = QPushButton("🛠️ Reboot Recovery")
         self.btn_reboot_recovery.setObjectName("btnRebootRecovery")
-        self.btn_reboot_recovery.setFixedHeight(44)
+        self.btn_reboot_recovery.setMinimumHeight(38)
         self.btn_reboot_recovery.setCursor(Qt.PointingHandCursor)
         self.btn_reboot_recovery.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_reboot_recovery.setToolTip("Redémarre l'appareil en mode Récupération (Recovery Stock / TWRP).")
