@@ -257,10 +257,20 @@ def _find_adb_executable() -> Optional[str]:
     Priorité : tools/adb.exe → platform-tools/ → PATH → SDK paths → C:\\adb\\
     Retourne le chemin complet ou None si non trouvé.
     """
+    # 1. Utilisation du résolveur d'atelier centralisé (bin/, tools/, dist/)
+    try:
+        from core.init_env import get_adb_path
+        adb_path = get_adb_path()
+        if adb_path:
+            return adb_path
+    except Exception:
+        pass
+
     # Répertoire racine du projet (parent de ce fichier)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     candidate_dirs = [
+        os.path.join(project_root, "bin"),
         os.path.join(project_root, "tools"),
         os.path.join(project_root, "platform-tools"),
     ]

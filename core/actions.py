@@ -87,7 +87,15 @@ MTK_CHIP_MAP = {
 # =====================================================================
 
 def find_fastboot() -> Optional[str]:
-    """Trouve l'exécutable fastboot sur le système ou dans le projet."""
+    """Trouve l'exécutable fastboot sur le système ou dans les dossiers binaires embarqués."""
+    try:
+        from core.init_env import get_fastboot_path
+        fb_path = get_fastboot_path()
+        if fb_path:
+            return fb_path
+    except Exception:
+        pass
+
     found = shutil.which("fastboot")
     if found:
         return found
@@ -140,7 +148,15 @@ def _run_fastboot_cmd(cmd_args: List[str], timeout: float = 15.0) -> Tuple[int, 
 # =====================================================================
 
 def find_adb() -> Optional[str]:
-    """Trouve l'exécutable adb sur le système ou dans le projet."""
+    """Trouve l'exécutable adb sur le système ou dans les dossiers binaires embarqués."""
+    try:
+        from core.init_env import get_adb_path
+        adb_path = get_adb_path()
+        if adb_path:
+            return adb_path
+    except Exception:
+        pass
+
     found = shutil.which("adb")
     if found:
         return found

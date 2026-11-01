@@ -1,46 +1,141 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Optima MTK Tool - Point d'entrée de l'application
-Application de flash et déblocage FRP pour processeurs MediaTek
+=============================================================================
+Optima MTK Tool Pro - Point d'Entrée Principal de l'Application
+=============================================================================
+Application d'Atelier pour Flash, Déblocage FRP & Bootloader MediaTek (MTK).
+Architecture pure GUI Windows autonome, sans fenêtre console / DOS.
+=============================================================================
 """
 
 import sys
 import os
+import time
+import subprocess
+import logging
 
-# Ajout du répertoire racine au path pour permettre les imports relatifs
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import Qt
-
-from gui.main_window import MainWindow
+# Configuration logging interne
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("OptimaMTK.Main")
 
 
-def main():
-    """Fonction principale de lancement de l'application."""
-    # 1. Réveil matériel USB + réinitialisation ADB avant tout démarrage de l'UI
-    #    (simule le comportement de réveil de TFT Unlock au lancement)
-    try:
-        from core.usb_reset import perform_hardware_wake, is_admin
-        perform_hardware_wake()
-        if not is_admin():
-            # Avertissement non-bloquant : certaines fonctions BROM peuvent nécessiter les droits admin
-            print(
-                "[USB-WAKE][WARNING] Application lancée sans droits Administrateur. "
-                "La détection BROM/COM peut être limitée.",
-                file=sys.stderr,
-            )
-    except Exception:
-        # Fallback : au minimum, on tente de réinitialiser le serveur ADB
+# ─── 1. Suppression absolue de la console DOS & protection des flux ─────────
+def ensure_pure_gui():
+    """
+    Masque totalement toute invite de commandes Windows résiduelle et protège
+    les flux standards sys.stdout / sys.stderr contre les crashs en mode --windowed.
+    """
+    if sys.platform == "win32":
         try:
-            from core.detector import reset_adb_server
-            reset_adb_server()
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE = 0
         except Exception:
             pass
 
-    # Activation du scaling haute DPI sur Windows
+    # En mode PyInstaller --windowed, sys.stdout et sys.stderr sont None.
+    # Redirection vers os.devnull pour éviter AttributeError sur les appels print().
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
+ensure_pure_gui()
+
+
+# ─── 2. Résolution dynamique de la racine du projet ─────────────────────────
+if getattr(sys, "frozen", False):
+    # En mode binaire compilé PyInstaller : sys._MEIPASS (_internal) ou dossier de l'exécutable
+    ROOT_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+else:
+    # En mode script Python de développement
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+
+# ─── 3. Nettoyage et purge au démarrage (Kill-switch automatique) ────────────
+def kill_switch_startup_cleanup():
+    """
+    Purge bloquante et libération des ressources au tout début de l'exécution :
+      1. Exécute taskkill /F /IM adb.exe /T pour libérer le port TCP 5037 et tuer les démons zombies.
+      2. Exécute taskkill /F /IM fastboot.exe /T pour fermer tout processus fastboot orphelin.
+      3. Réinitialise les sockets et bus matériels USB via perform_hardware_wake()
+         afin d'empêcher tout verrouillage hérité sur les ports BROM / Preloader (Infinix/MTK).
+    """
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    # 1. Extermination sans fenêtre noire des démons ADB et Fastboot orphelins
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "adb.exe", "/T"],
+                capture_output=True,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+                timeout=3.0,
+            )
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "fastboot.exe", "/T"],
+                capture_output=True,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+                timeout=3.0,
+            )
+        else:
+            subprocess.run(["killall", "-9", "adb"], capture_output=True, timeout=2.0)
+            subprocess.run(["killall", "-9", "fastboot"], capture_output=True, timeout=2.0)
+    except Exception as exc:
+        logger.debug(f"[KILL-SWITCH] Purge des processus : {exc}")
+
+    # 2. Vérification et libération du port socket TCP 5037
+    try:
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex(("127.0.0.1", 5037)) == 0:
+                time.sleep(0.2)
+    except Exception:
+        pass
+
+    # 3. Réinitialisation des bus matériels USB et réveil contrôleurs d'hôtes (MTK)
+    try:
+        from core.usb_reset import perform_hardware_wake
+        perform_hardware_wake()
+    except Exception as exc:
+        logger.debug(f"[KILL-SWITCH] Réveil matériel USB : {exc}")
+
+
+# ─── 4. Fonction Principale (Démarrage GUI) ──────────────────────────────────
+def main():
+    """Initialise l'environnement, exécute la purge et lance l'interface graphique."""
+    # A. Purge automatique bloquante au démarrage (Kill-switch ADB/TCP 5037/USB)
+    kill_switch_startup_cleanup()
+
+    # B. Initialisation des dépendances bas-niveau (LibUSB DLL, PATH bin/, drivers/)
+    try:
+        from core.init_env import init_environment
+        init_environment()
+    except Exception as exc:
+        logger.warning(f"[INIT-ENV] Initialisation partielle de l'environnement : {exc}")
+
+    # C. Lancement de l'interface graphique PyQt5
+    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtGui import QIcon
+    from PyQt5.QtCore import Qt
+    from gui.main_window import MainWindow
+
+    # Support haute résolution écran
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
@@ -49,12 +144,12 @@ def main():
     app.setApplicationVersion("1.0.0")
     app.setOrganizationName("Optima Telecom")
 
-    # Chargement de l'icône de l'application si elle existe
-    icon_path = os.path.join("assets", "icon.ico")
+    # Chargement de l'icône de l'application
+    icon_path = os.path.join(ROOT_DIR, "assets", "icon.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
-    # Style global de l'application (mode sombre)
+    # Thème sombre moderne atelier
     app.setStyle("Fusion")
 
     window = MainWindow()

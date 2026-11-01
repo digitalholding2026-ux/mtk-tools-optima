@@ -103,30 +103,35 @@ ANDROID_VENDOR_IDS = {
 
 def _get_libusb_backend():
     """
-    Résout le backend libusb dans l'ordre de priorité :
-      1. tools/libusb-1.0.dll (DLL embarquée dans le projet — mode autonome)
-      2. libusb-package (installé via pip install libusb-package)
-      3. libusb1 auto-découverte par PyUSB (PATH système, site-packages)
-      4. None → PyUSB ne peut pas fonctionner (dégradation propre)
-
-    Cette priorité garantit que l'application fonctionne de façon autonome
-    sur n'importe quel poste d'atelier sans installation système supplémentaire.
+    Résout le backend libusb via le module central d'initialisation (core.init_env).
+    Garantit une encapsulation autonome (bin/ ou tools/ -> libusb-package -> système).
     """
     if not HAS_PYUSB:
         return None
 
-    # ── 1. DLL embarquée dans tools/ ──────────────────────────────────────────
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    embedded_dll = os.path.join(project_root, "tools", "libusb-1.0.dll")
+    try:
+        from core.init_env import get_libusb_backend
+        backend = get_libusb_backend()
+        if backend is not None:
+            return backend
+    except Exception as exc:
+        logger.debug(f"[USB-SCANNER] Délégation init_env a échoué ({exc}), passage au secours local")
 
-    if os.path.isfile(embedded_dll):
-        try:
-            backend = _usb_backend_libusb1.get_backend(find_library=lambda x: embedded_dll)
-            if backend is not None:
-                logger.debug(f"[USB-SCANNER] Backend libusb : DLL embarquée ({embedded_dll})")
-                return backend
-        except Exception as exc:
-            logger.debug(f"[USB-SCANNER] DLL embarquée inutilisable : {exc}")
+    # ── 1. DLL embarquée dans tools/ ou bin/ ───────────────────────────────────
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for candidate in [
+        os.path.join(project_root, "bin", "x64", "libusb-1.0.dll"),
+        os.path.join(project_root, "bin", "libusb-1.0.dll"),
+        os.path.join(project_root, "tools", "libusb-1.0.dll"),
+    ]:
+        if os.path.isfile(candidate):
+            try:
+                backend = _usb_backend_libusb1.get_backend(find_library=lambda x: candidate)
+                if backend is not None:
+                    logger.debug(f"[USB-SCANNER] Backend libusb : DLL embarquée ({candidate})")
+                    return backend
+            except Exception as exc:
+                logger.debug(f"[USB-SCANNER] DLL embarquée inutilisable ({candidate}) : {exc}")
 
     # ── 2. libusb-package (pip install libusb-package) ────────────────────────
     try:

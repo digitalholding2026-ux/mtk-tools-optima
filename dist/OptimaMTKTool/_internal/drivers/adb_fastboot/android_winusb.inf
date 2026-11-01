@@ -1,0 +1,56 @@
+; ==============================================================================
+; Android WinUsb Driver Package (Optima MTK Tool)
+; Interfaces ADB et Fastboot pour téléphones MediaTek, Xiaomi, Infinix, Tecno
+; ==============================================================================
+[Version]
+Signature   = "$Windows NT$"
+Class       = AndroidUsbDeviceClass
+ClassGuid   = {F72529D9-DD72-4902-9180-155D3E0D5B0C}
+Provider    = %ProviderName%
+DriverVer   = 12/01/2023, 11.0.0000.00001
+CatalogFile = android_winusb.cat
+
+[ClassInstall32]
+Addreg = AndroidWinUsbClassReg
+
+[AndroidWinUsbClassReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-1
+
+[Manufacturer]
+%ProviderName% = Google, NTx86, NTamd64
+
+[Google.NTx86]
+; MediaTek Fastboot & ADB Composite
+%CompositeAdbInterface%     = USB_Install, USB\VID_0E8D&PID_2005&MI_01
+%SingleBootLoaderInterface%  = USB_Install, USB\VID_0E8D&PID_0C03
+%SingleBootLoaderInterface%  = USB_Install, USB\VID_18D1&PID_0D02
+%SingleAdbInterface%         = USB_Install, USB\VID_18D1&PID_4EE7
+
+[Google.NTamd64]
+; MediaTek Fastboot & ADB Composite
+%CompositeAdbInterface%     = USB_Install, USB\VID_0E8D&PID_2005&MI_01
+%SingleBootLoaderInterface%  = USB_Install, USB\VID_0E8D&PID_0C03
+%SingleBootLoaderInterface%  = USB_Install, USB\VID_18D1&PID_0D02
+%SingleAdbInterface%         = USB_Install, USB\VID_18D1&PID_4EE7
+
+[USB_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = Dev_AddReg
+
+[Dev_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{F72529D9-DD72-4902-9180-155D3E0D5B0C}"
+
+[Strings]
+ProviderName                = "Google / MediaTek OEM"
+ClassName                   = "Android Device"
+CompositeAdbInterface       = "Android Composite ADB Interface"
+SingleBootLoaderInterface   = "Android Bootloader Fastboot Interface"
+SingleAdbInterface          = "Android ADB Testing Interface"

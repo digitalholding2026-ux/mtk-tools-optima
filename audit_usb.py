@@ -58,10 +58,20 @@ def audit_adb_server():
     print(f"{COLOR_BOLD}[1] AUDIT DU SERVEUR ADB & PORT TCP 5037{COLOR_RESET}")
     print("-" * 60)
 
+    # 1.0 Initialisation environnement atelier (bin/, tools/, DLLs)
+    try:
+        from core.init_env import init_environment, get_adb_path
+        init_environment()
+        adb_bin = get_adb_path()
+    except Exception:
+        adb_bin = None
+
     # 1.1 Localisation du binaire ADB
-    adb_bin = shutil.which("adb") or shutil.which("adb.exe")
+    if not adb_bin:
+        adb_bin = shutil.which("adb") or shutil.which("adb.exe")
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
+        os.path.join(base_dir, "bin", "adb.exe"),
         os.path.join(base_dir, "tools", "adb.exe"),
         os.path.join(base_dir, "platform-tools", "adb.exe"),
     ]

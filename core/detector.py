@@ -238,6 +238,13 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
     rendant Optima MTK Tool totalement autonome sans dépendre d'un outil tiers.
     """
     if not adb_bin:
+        try:
+            from core.init_env import get_adb_path
+            adb_bin = get_adb_path()
+        except Exception:
+            adb_bin = None
+
+    if not adb_bin:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         embedded_candidates = [
             os.path.join(base_dir, "tools", "adb.exe"),
@@ -345,7 +352,15 @@ class DeviceDetector(QThread):
     # Localisation des binaires utilitaires (fastboot, adb)
     # -----------------------------------------------------------------
     def _find_fastboot_executable(self) -> Optional[str]:
-        """Localise l'exécutable fastboot dans tools/, PATH ou Android SDK."""
+        """Localise l'exécutable fastboot dans bin/, tools/, PATH ou Android SDK."""
+        try:
+            from core.init_env import get_fastboot_path
+            fb_path = get_fastboot_path()
+            if fb_path:
+                return fb_path
+        except Exception:
+            pass
+
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         candidates = [
             os.path.join(base_dir, "tools", "fastboot.exe"),
@@ -384,9 +399,17 @@ class DeviceDetector(QThread):
 
     def _find_adb_executable(self) -> Optional[str]:
         """
-        Localise l'exécutable adb dans tools/, PATH ou Android SDK.
-        Vérifie prioritairement le dossier 'tools/' embarqué dans le projet.
+        Localise l'exécutable adb dans bin/, tools/, PATH ou Android SDK.
+        Vérifie prioritairement le dossier 'bin/' et 'tools/' embarqué dans le projet.
         """
+        try:
+            from core.init_env import get_adb_path
+            adb_path = get_adb_path()
+            if adb_path:
+                return adb_path
+        except Exception:
+            pass
+
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         candidates = [
             os.path.join(base_dir, "tools", "adb.exe"),
