@@ -18,6 +18,7 @@ from gui.frp_tab import FRPResetTab
 from gui.flash_tab import FlashTab
 from gui.device_info_tab import DeviceInfoTab
 from gui.log_panel import LogPanel
+from gui.device_status_widget import DeviceStatusBanner
 from core.detector import DeviceDetector, ConnectedDevice, DeviceMode
 from core.mtk_communication import MTKCommunication
 
@@ -62,6 +63,7 @@ class MainWindow(QMainWindow):
         self.detector.device_detected.connect(self._on_device_detected)
         self.detector.device_lost.connect(self._on_device_lost)
         self.detector.status_updated.connect(self._on_status_updated)
+        self.detector.status_updated.connect(self.status_banner.update_status)
         self.detector.log_message.connect(self._append_log)
 
         # Message initial dans le panneau de logs
@@ -90,6 +92,10 @@ class MainWindow(QMainWindow):
         # --- En-tête avec titre et badge dynamique temps réel ---
         header = self._build_header()
         main_layout.addWidget(header)
+
+        # --- Bandeau de statut persistant (toujours visible, entre header et onglets) ---
+        self.status_banner = DeviceStatusBanner()
+        main_layout.addWidget(self.status_banner)
 
         # --- Zone centrale avec onglets ---
         self.tabs = QTabWidget()
@@ -356,6 +362,14 @@ class MainWindow(QMainWindow):
             device.color
         )
 
+        # Mise à jour du bandeau de statut persistant
+        self.status_banner.update_status(
+            device.mode.value,
+            f"🟢 {device.badge_title}",
+            device.badge_subtitle,
+            device.color
+        )
+
         # 1. Mise à jour de la logique métier (protocole, port, mode)
         self.mtk_comm.set_device(device)
 
@@ -378,6 +392,14 @@ class MainWindow(QMainWindow):
             "En attente de connexion...",
             "Surveillance active (BROM, Fastboot, Normal)",
             "#8a92a8"
+        )
+
+        # Remise à zéro du bandeau de statut persistant
+        self.status_banner.update_status(
+            "NONE",
+            "🔴 Aucun appareil détecté",
+            "Surveillance continue active (BROM, Fastboot, ADB)…",
+            "#e74c3c"
         )
 
         # 1. Mise à jour de la logique métier
@@ -403,9 +425,32 @@ class MainWindow(QMainWindow):
     ) -> bool:
         """
         Déclenche l'assistant visuel d'instructions et l'écoute active temporaire (JIT).
-        Ouvre la popup, attend le branchement avec animation et décompte, ferme la popup
-        dès détection, consigne le log propre et exécute operation_func.
+
+        Optimisation : si le service de surveillance en arrière-plan a déjà détecté
+        un appareil compatible, l'action est exécutée immédiatement sans ouvrir la popup
+        d'instruction (passage fluide, zéro latence).
+
+        Sinon, ouvre la popup, attend le branchement avec animation et décompte, ferme la
+        popup dès détection, consigne le log propre et exécute operation_func.
         """
+        # ── Vérification de l'état détecté par le service de fond ──────
+        current = self.detector.get_current_device()
+        if current is not None:
+            # Vérifier la compatibilité du mode avec les modes cibles
+            mode_ok = (target_modes is None) or (current.mode in target_modes)
+            if mode_ok:
+                loc = current.port or current.serial_number or current.identifier
+                self._append_log(
+                    f"Appareil déjà détecté ({current.mode.value} — {loc}). "
+                    f"Exécution immédiate de « {action_name} »…",
+                    "success"
+                )
+                # S'assurer que les onglets sont à jour avec l'appareil en cours
+                self._on_device_detected(current)
+                operation_func(current)
+                return True
+
+        # ── Aucun appareil pré-détecté : ouvrir l'assistant JIT ─────────
         from gui.connection_assistant import execute_with_assistant
 
         def wrapped_operation(device: ConnectedDevice):

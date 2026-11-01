@@ -73,25 +73,29 @@ class ConnectedDevice:
 
     @property
     def color(self) -> str:
-        """Couleur hex associée au mode."""
-        if self.mode == DeviceMode.BROM:
-            return "#2ecc71"        # Vert émeraude (MTK Flash/BROM prêt)
-        elif self.mode == DeviceMode.FASTBOOT:
-            return "#00c3ff"        # Bleu cyan vif (Fastboot)
-        elif self.mode == DeviceMode.NORMAL:
-            return "#a29bfe"        # Violet / Mauve (Normal / Modem AT)
-        return "#8a92a8"            # Gris (En attente)
+        """Couleur hex associée au mode (Vert éclatant si connecté, Rouge si déconnecté)."""
+        if self.mode != DeviceMode.NONE:
+            return "#2ecc71"        # 🟢 Vert éclatant dès détection
+        return "#e74c3c"            # 🔴 Rouge si aucun appareil
+
+    @property
+    def status_emoji(self) -> str:
+        """Émoticône représentative du statut."""
+        if self.mode != DeviceMode.NONE:
+            return "🟢"
+        return "🔴"
 
     @property
     def badge_title(self) -> str:
-        """Titre compact pour affichage dans l'en-tête."""
+        """Titre standardisé selon les spécifications d'affichage en temps réel."""
         if self.mode == DeviceMode.BROM:
-            return f"Appareil détecté en mode BROM ({self.port or self.identifier})"
+            port_name = self.port or self.identifier
+            return f"Appareil détecté en mode BROM / Preloader (Port {port_name})"
         elif self.mode == DeviceMode.FASTBOOT:
-            return f"Appareil détecté en mode Fastboot ({self.serial_number or self.identifier})"
+            return "Appareil détecté en mode Fastboot"
         elif self.mode == DeviceMode.NORMAL:
-            return f"Appareil détecté en mode Normal/AT ({self.port or self.identifier})"
-        return "En attente de connexion..."
+            return "Appareil détecté en mode Normal / ADB"
+        return "Aucun appareil détecté"
 
     @property
     def badge_subtitle(self) -> str:
@@ -577,16 +581,16 @@ class DeviceDetector(QThread):
         if device is None:
             self.status_updated.emit(
                 DeviceMode.NONE.value,
-                "En attente de connexion...",
-                "Surveillance active (BROM, Fastboot, Normal)",
-                "#8a92a8"
+                "Aucun appareil détecté",
+                "Surveillance continue active (BROM, Fastboot, ADB)...",
+                "#e74c3c"
             )
         else:
             self.status_updated.emit(
                 device.mode.value,
                 device.badge_title,
                 device.badge_subtitle,
-                device.color
+                "#2ecc71"
             )
 
     # -----------------------------------------------------------------

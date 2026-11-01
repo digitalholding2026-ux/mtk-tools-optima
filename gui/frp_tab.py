@@ -38,36 +38,22 @@ class FRPResetWorker(QThread):
 
     def run(self):
         try:
+            from core.actions import erase_frp
             mode = self.device.mode if self.device else DeviceMode.BROM
-            self.log.emit(f"Initialisation du protocole FRP pour le mode {mode.value}...", "info")
-            self.progress.emit(10)
+            target_id = self.device.port or self.device.serial_number or self.device.identifier if self.device else "COM3"
 
-            if mode == DeviceMode.FASTBOOT:
-                steps = [
-                    (25, "Vérification de la liaison USB Fastboot..."),
-                    (50, "Envoi de la commande 'fastboot erase frp'..."),
-                    (75, "Envoi de la commande 'fastboot erase config'..."),
-                    (90, "Réinitialisation des drapeaux de verrouillage OEM..."),
-                    (100, "Déblocage FRP Fastboot terminé avec succès."),
-                ]
-            else:
-                port = self.device.port if self.device else "COM"
-                steps = [
-                    (20, f"Handshake matériel sur {port} (MediaTek BROM)..."),
-                    (40, "Injection du Download Agent (DA) sécurisé..."),
-                    (65, "Formatage de la partition de persistance FRP (0x00000000)..."),
-                    (85, "Restauration des blocs NVRAM intègres..."),
-                    (100, "Déblocage FRP BROM réussi. Redémarrage de l'appareil..."),
-                ]
+            self.progress.emit(20)
 
-            for pct, msg in steps:
-                self.log.emit(msg, "info")
-                self.progress.emit(pct)
-                self.msleep(500)
+            def _log_cb(msg: str, lvl: str = "info"):
+                self.log.emit(msg, lvl)
 
-            self.finished.emit(True, "Le déblocage FRP a réussi avec succès. L'appareil est déverrouillé.")
+            self.progress.emit(40)
+            res = erase_frp(mode=mode, device_identifier=target_id, log_callback=_log_cb)
+            self.progress.emit(100)
+
+            self.finished.emit(res.success, res.message)
         except Exception as e:
-            self.log.emit(f"Erreur lors du déblocage FRP : {str(e)}", "error")
+            self.log.emit(f"[ERROR] Exception FRP : {str(e)}", "error")
             self.finished.emit(False, str(e))
 
 
@@ -84,35 +70,23 @@ class FactoryResetWorker(QThread):
 
     def run(self):
         try:
+            from core.actions import factory_reset
             mode = self.device.mode if self.device else DeviceMode.BROM
-            self.log.emit(f"Initialisation du Factory Reset pour le mode {mode.value}...", "info")
-            self.progress.emit(10)
+            target_id = self.device.port or self.device.serial_number or self.device.identifier if self.device else "COM3"
 
-            if mode == DeviceMode.FASTBOOT:
-                steps = [
-                    (25, "Liaison Fastboot active..."),
-                    (50, "Exécution de 'fastboot erase userdata'..."),
-                    (75, "Exécution de 'fastboot erase cache'..."),
-                    (90, "Formatage d'usine validé."),
-                    (100, "Redémarrage du téléphone..."),
-                ]
-            else:
-                port = self.device.port if self.device else "COM"
-                steps = [
-                    (20, f"Handshake matériel sur {port} (MediaTek BROM)..."),
-                    (40, "Lecture des partitions GPT / Scatter..."),
-                    (65, "Formatage complet de la partition userdata (effacement total)..."),
-                    (85, "Formatage et purge du cache..."),
-                    (100, "Factory Reset terminé avec succès."),
-                ]
+            self.progress.emit(20)
 
-            for pct, msg in steps:
-                self.log.emit(msg, "info")
-                self.progress.emit(pct)
-                self.msleep(500)
+            def _log_cb(msg: str, lvl: str = "info"):
+                self.log.emit(msg, lvl)
 
-            self.finished.emit(True, "Le Factory Reset a réussi. Toutes les données ont été effacées.")
+            self.progress.emit(40)
+            res = factory_reset(mode=mode, device_identifier=target_id, log_callback=_log_cb)
+            self.progress.emit(100)
+
+            self.finished.emit(res.success, res.message)
         except Exception as e:
+            self.log.emit(f"[ERROR] Exception Factory Reset : {str(e)}", "error")
+            self.finished.emit(False, str(e))
             self.log.emit(f"Erreur lors du Factory Reset : {str(e)}", "error")
             self.finished.emit(False, str(e))
 
@@ -329,7 +303,16 @@ class FRPResetTab(QWidget):
 
     def _on_worker_log(self, msg, level):
         color = COLOR_SUCCESS if level == "success" else COLOR_TEXT
+        if level == "error":
+            color = COLOR_ERROR
+        elif level == "warning":
+            color = COLOR_WARNING
         self.txt_log.append(f'<span style="color:{color}">• {msg}</span>')
+
+        # Met à jour le panneau de log principal de l'application en direct
+        main_win = self.window()
+        if hasattr(main_win, "log_panel"):
+            main_win.log_panel.add_log(msg, level)
 
     def _on_frp_finished(self, success, message):
         self.btn_frp.setEnabled(True)

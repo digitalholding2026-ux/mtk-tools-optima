@@ -49,10 +49,12 @@ class DeviceInfoTab(QWidget):
 
         self.lbl_mode = self._create_info_row(info_layout, 0, 0, "Mode détecté :", "En attente")
         self.lbl_port = self._create_info_row(info_layout, 0, 1, "Port / Liaison :", "—")
-        self.lbl_model = self._create_info_row(info_layout, 1, 0, "Modèle :", "—")
-        self.lbl_chip = self._create_info_row(info_layout, 1, 1, "Processeur :", "—")
-        self.lbl_proto = self._create_info_row(info_layout, 2, 0, "Protocole :", "—")
-        self.lbl_ident = self._create_info_row(info_layout, 2, 1, "ID / VID:PID :", "—")
+        self.lbl_model = self._create_info_row(info_layout, 1, 0, "Nom / Modèle :", "—")
+        self.lbl_chip = self._create_info_row(info_layout, 1, 1, "Chipset / Processeur :", "—")
+        self.lbl_android = self._create_info_row(info_layout, 2, 0, "Version Android :", "—")
+        self.lbl_imei = self._create_info_row(info_layout, 2, 1, "IMEI / N° Série :", "—")
+        self.lbl_proto = self._create_info_row(info_layout, 3, 0, "Protocole :", "—")
+        self.lbl_ident = self._create_info_row(info_layout, 3, 1, "ID Matériel / VID:PID :", "—")
 
         layout.addWidget(info_group)
 
@@ -163,7 +165,7 @@ class DeviceInfoTab(QWidget):
         self.lbl_mode.setText("En attente")
         self.lbl_mode.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: bold;")
 
-        for lbl in [self.lbl_port, self.lbl_model, self.lbl_chip, self.lbl_proto, self.lbl_ident]:
+        for lbl in [self.lbl_port, self.lbl_model, self.lbl_chip, self.lbl_android, self.lbl_imei, self.lbl_proto, self.lbl_ident]:
             lbl.setText("—")
             lbl.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px; font-weight: bold;")
 
@@ -210,6 +212,8 @@ class DeviceInfoTab(QWidget):
         # Modèle & Chip
         self.lbl_model.setText(raw_info.get("model", dev.description))
         self.lbl_chip.setText(raw_info.get("chip", "MediaTek MTK"))
+        self.lbl_android.setText(raw_info.get("android", "—"))
+        self.lbl_imei.setText(raw_info.get("imei", raw_info.get("serial", "—")))
 
         # Protocole & Identifiant
         self.lbl_proto.setText(dev.protocol or raw_info.get("protocol", "—"))

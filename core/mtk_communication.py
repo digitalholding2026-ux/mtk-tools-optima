@@ -73,6 +73,7 @@ class MTKCommunication(QObject):
     def read_device_info(self) -> Dict[str, Any]:
         """
         Lit les informations de l'appareil en s'adaptant dynamiquement au mode actif.
+        Délègue l'exécution bas-niveau à core.actions.read_device_info.
         """
         if not self._connected or not self._current_device:
             return {
@@ -86,56 +87,34 @@ class MTKCommunication(QObject):
             }
 
         dev = self._current_device
+        target_id = dev.port or dev.serial_number or dev.identifier
 
-        if dev.mode == DeviceMode.BROM:
-            vid_str = f"0x{dev.vid:04X}" if dev.vid else "0x0E8D"
-            pid_str = f"0x{dev.pid:04X}" if dev.pid else "0x0003"
+        from core.actions import read_device_info as act_read_info
+        res = act_read_info(dev.mode, target_id, log_callback=self.log.emit)
+
+        if res.success and res.data:
+            data = res.data
             return {
-                "mode": "BROM / Preloader",
+                "mode": dev.mode_display,
                 "port": dev.port or dev.identifier,
-                "model": "MediaTek MTK Device (Mode BROM)",
-                "chip": "MT67xx / MT68xx (Handshake DA)",
-                "android": "BootROM (Bas niveau)",
-                "baseband": "MTK Bootloader / Baseband DA",
-                "imei": "Accessible via lecture NVRAM",
-                "protocol": dev.protocol or "MediaTek VCOM BootROM Direct",
-                "vid_pid": f"{vid_str}:{pid_str}",
-            }
-
-        elif dev.mode == DeviceMode.FASTBOOT:
-            serial = dev.serial_number or dev.identifier
-            return {
-                "mode": "Fastboot Bootloader",
-                "port": "USB Fastboot Direct",
-                "model": f"Périphérique Fastboot ({serial})",
-                "chip": "MediaTek SoC (Fastboot Mode)",
-                "android": "Chargeur d'amorçage actif",
-                "baseband": "Mode Fastboot",
-                "imei": "Verrouillé par le bootloader",
-                "protocol": "Protocole Fastboot OEM Android",
-                "serial": serial,
-            }
-
-        elif dev.mode == DeviceMode.NORMAL:
-            loc = dev.port or dev.serial_number or dev.identifier
-            return {
-                "mode": "Normal / AT",
-                "port": loc,
-                "model": "MediaTek Smartphone (OS Actif)",
-                "chip": "MediaTek Helio / Dimensity",
-                "android": "Android (Système en cours d'exécution)",
-                "baseband": "Modem AT Opérationnel",
-                "imei": "Lecture AT+EGMR prête",
-                "protocol": dev.protocol or "Commandes Hayes AT / CDC Serial",
+                "model": data.get("name", data.get("model", dev.description)),
+                "chip": data.get("chipset", "MediaTek MTK"),
+                "android": data.get("android_version", "Android OS"),
+                "baseband": data.get("raw_variables", {}).get("version-baseband", "Baseband MTK"),
+                "imei": data.get("imei", data.get("serial", "—")),
+                "protocol": dev.protocol or "Protocole Direct",
+                "serial": data.get("serial", dev.serial_number or "—"),
             }
 
         return {
-            "mode": "Inconnu",
-            "model": "Appareil MediaTek",
-            "chip": "MTK",
+            "mode": dev.mode_display,
+            "port": dev.port or dev.identifier,
+            "model": dev.description or "Appareil MediaTek",
+            "chip": "MediaTek MTK",
             "android": "—",
             "baseband": "—",
             "imei": "—",
+            "protocol": dev.protocol or "Direct",
         }
 
     # -----------------------------------------------------------------
@@ -143,10 +122,7 @@ class MTKCommunication(QObject):
     # -----------------------------------------------------------------
     def frp_reset(self, callback=None):
         """
-        Effectue le déblocage FRP en utilisant le protocole adapté au mode actif :
-        - BROM : écriture directe via DA / partition frp
-        - Fastboot : fastboot erase config / oem frp-unlock
-        - Normal : bascule suggérée en BROM/Fastboot
+        Effectue le déblocage FRP en utilisant le protocole adapté au mode actif via core.actions.erase_frp.
         """
         if not self._connected or not self._current_device:
             self.log.emit("Erreur : Aucun appareil connecté pour le déblocage FRP.", "error")
@@ -155,32 +131,21 @@ class MTKCommunication(QObject):
             return
 
         dev = self._current_device
+        target_id = dev.port or dev.serial_number or dev.identifier
 
-        if dev.mode == DeviceMode.BROM:
-            self.log.emit(f"Démarrage FRP via protocole BROM sur {dev.port}...", "info")
-            self.log.emit("Envoi du Download Agent (DA) et partitionnement MTK...", "info")
-            self.log.emit("Effacement de la partition FRP (0x00000000 - lock state = 0)...", "info")
-            if callback:
-                callback(True, "Déblocage FRP réussi en mode BROM (Partitions réinitialisées).")
+        from core.actions import erase_frp as act_erase_frp
+        res = act_erase_frp(dev.mode, target_id, log_callback=self.log.emit)
 
-        elif dev.mode == DeviceMode.FASTBOOT:
-            self.log.emit(f"Démarrage FRP via protocole Fastboot (Série : {dev.serial_number})...", "info")
-            self.log.emit("Exécution de la commande 'fastboot erase frp' / 'fastboot erase config'...", "info")
-            if callback:
-                callback(True, "Déblocage FRP réussi en mode Fastboot.")
-
-        elif dev.mode == DeviceMode.NORMAL:
-            self.log.emit("Appareil détecté en mode Normal/AT.", "warning")
-            self.log.emit("Pour un déblocage FRP optimal, redémarrez l'appareil en mode BROM (éteindre le téléphone et brancher en maintenant Volume Bas).", "info")
-            if callback:
-                callback(False, "Bascule requise en mode BROM ou Fastboot.")
+        if callback:
+            callback(res.success, res.message)
+        return res
 
     # -----------------------------------------------------------------
     # Opération Factory Reset (Formatage d'usine / Userdata)
     # -----------------------------------------------------------------
     def factory_reset(self, callback=None):
         """
-        Effectue une réinitialisation d'usine / formatage des données (Wipe Userdata/Cache).
+        Effectue une réinitialisation d'usine / formatage des données via core.actions.factory_reset.
         """
         if not self._connected or not self._current_device:
             self.log.emit("Erreur : Aucun appareil connecté pour le Factory Reset.", "error")
@@ -189,23 +154,14 @@ class MTKCommunication(QObject):
             return
 
         dev = self._current_device
-        if dev.mode == DeviceMode.BROM:
-            self.log.emit(f"Démarrage Factory Reset via BROM sur {dev.port}...", "info")
-            self.log.emit("Formatage sécurisé de la partition userdata (effacement d'usine)...", "info")
-            self.log.emit("Formatage de la partition cache...", "info")
-            if callback:
-                callback(True, "Factory Reset terminé avec succès en mode BROM.")
+        target_id = dev.port or dev.serial_number or dev.identifier
 
-        elif dev.mode == DeviceMode.FASTBOOT:
-            self.log.emit(f"Démarrage Factory Reset via Fastboot ({dev.serial_number})...", "info")
-            self.log.emit("Exécution de 'fastboot erase userdata' et 'fastboot erase cache'...", "info")
-            if callback:
-                callback(True, "Factory Reset terminé avec succès en mode Fastboot.")
+        from core.actions import factory_reset as act_factory_reset
+        res = act_factory_reset(dev.mode, target_id, log_callback=self.log.emit)
 
-        elif dev.mode == DeviceMode.NORMAL:
-            self.log.emit("Appareil en mode Normal. Pour un formatage complet, redémarrer en mode BROM.", "warning")
-            if callback:
-                callback(False, "Bascule requise en mode BROM ou Fastboot.")
+        if callback:
+            callback(res.success, res.message)
+        return res
 
     # -----------------------------------------------------------------
     # Opération Flash Firmware
