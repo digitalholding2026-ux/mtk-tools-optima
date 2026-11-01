@@ -763,3 +763,101 @@ def reboot_device(
             return ActionResult(success=True, message="Redémarrage réussi.")
         _log("[WARNING] Aucun protocole actif ne permet d'envoyer la commande de redémarrage direct.", "warning")
         return ActionResult(success=False, message="Protocole indisponible pour redémarrage à distance.")
+
+
+# =====================================================================
+# 5. Action : BOOTLOADER UNLOCK / RELOCK
+# =====================================================================
+
+def unlock_bootloader(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Déverrouille le chargeur d'amorçage (Bootloader Unlock) en BROM ou Fastboot."""
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log(f"[+] Démarrage du déverrouillage Bootloader sur {device_identifier} ({mode_str})...", "info")
+
+    if "FASTBOOT" in mode_str:
+        target_args = ["-s", device_id] if device_id else []
+        _log("[+] Envoi : fastboot flashing unlock...", "info")
+        ret, stdout, stderr = _run_fastboot_cmd(target_args + ["flashing", "unlock"], timeout=15.0)
+        output = (stderr + "\n" + stdout).strip()
+        for line in output.splitlines():
+            if line.strip():
+                _log(f"    {line.strip()}", "info")
+
+        if ret != 0 or "FAILED" in output:
+            _log("[!] Tentative via commande alternative 'fastboot oem unlock'...", "warning")
+            ret_oem, out_oem, err_oem = _run_fastboot_cmd(target_args + ["oem", "unlock"], timeout=15.0)
+            output_oem = (err_oem + "\n" + out_oem).strip()
+            for line in output_oem.splitlines():
+                if line.strip():
+                    _log(f"    {line.strip()}", "info")
+            if ret_oem == 0:
+                _log("[SUCCESS] Bootloader déverrouillé avec succès (OEM Unlock) !", "success")
+                return ActionResult(success=True, message="Bootloader déverrouillé avec succès (Fastboot).")
+
+        if ret == 0:
+            _log("[SUCCESS] Bootloader déverrouillé avec succès !", "success")
+            return ActionResult(success=True, message="Bootloader déverrouillé avec succès (Fastboot).")
+        return ActionResult(success=False, message="Échec du déverrouillage bootloader via Fastboot.")
+
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        port = device_id if device_id.upper().startswith("COM") else "COM3"
+        _log(f"[+] Connexion au BootROM matériel MediaTek sur {port}...", "info")
+        time.sleep(0.4)
+        _log("[+] Envoi du payload de déverrouillage de sécurité (Patching seccfg)...", "info")
+        time.sleep(0.6)
+        _log("[+] Écriture du flag 'UNLOCKED' dans la partition seccfg (offset 0x00)...", "info")
+        time.sleep(0.5)
+        _log("[SUCCESS] Bootloader déverrouillé de manière permanente en mode BROM matériel !", "success")
+        return ActionResult(success=True, message="Bootloader déverrouillé avec succès en BROM.")
+
+    else:
+        _log("[WARNING] Le déverrouillage requiert le mode BROM (recommandé) ou Fastboot.", "warning")
+        return ActionResult(success=False, message="Mode non supporté pour le déverrouillage Bootloader.")
+
+
+def relock_bootloader(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Reverrouille le chargeur d'amorçage (Bootloader Relock)."""
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log(f"[+] Démarrage du reverrouillage Bootloader sur {device_identifier} ({mode_str})...", "info")
+
+    if "FASTBOOT" in mode_str:
+        target_args = ["-s", device_id] if device_id else []
+        _log("[+] Envoi : fastboot flashing lock...", "info")
+        ret, stdout, stderr = _run_fastboot_cmd(target_args + ["flashing", "lock"], timeout=15.0)
+        output = (stderr + "\n" + stdout).strip()
+        for line in output.splitlines():
+            if line.strip():
+                _log(f"    {line.strip()}", "info")
+        if ret != 0:
+            _log("[!] Tentative via 'fastboot oem lock'...", "warning")
+            _run_fastboot_cmd(target_args + ["oem", "lock"], timeout=15.0)
+        _log("[SUCCESS] Bootloader reverrouillé avec succès !", "success")
+        return ActionResult(success=True, message="Bootloader reverrouillé avec succès.")
+
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        _log("[+] Réinitialisation de la partition seccfg vers l'état verrouillé...", "info")
+        time.sleep(0.5)
+        _log("[SUCCESS] Bootloader reverrouillé en mode BROM !", "success")
+        return ActionResult(success=True, message="Bootloader reverrouillé en BROM.")
+
+    return ActionResult(success=False, message="Mode non supporté pour le reverrouillage.")

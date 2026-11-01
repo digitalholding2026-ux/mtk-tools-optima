@@ -8,9 +8,19 @@ from gui.frp_tab import FRPResetTab
 from gui.tools_tab import ToolsTab
 from gui.log_panel import LogPanel
 from gui.device_status_widget import DeviceStatusBanner
+from gui.tft_widgets import (
+    BrandTabBar,
+    ModelSelectorPanel,
+    ActionTabsPanel,
+    ConnectionManagerPanel,
+)
 
 __all__ = [
     "MainWindow",
+    "BrandTabBar",
+    "ModelSelectorPanel",
+    "ActionTabsPanel",
+    "ConnectionManagerPanel",
     "DeviceInfoTab",
     "FRPResetTab",
     "ToolsTab",
