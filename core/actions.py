@@ -17,7 +17,7 @@ import time
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Callable, Union, List
+from typing import Optional, Dict, Any, Callable, Union, List, Tuple
 
 try:
     import serial

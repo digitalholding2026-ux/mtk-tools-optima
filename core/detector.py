@@ -3,8 +3,9 @@
 Module de détection automatique et en temps réel des périphériques pour Optima MTK Tool.
 Surveille en arrière-plan (QThread non bloquant) les modes :
   - BROM / BootROM (MediaTek VCOM, Preloader, DA USB)
-  - Fastboot (USB Fastboot Bootloader via 'fastboot devices')
-  - Normal / AT (Ports AT/Modem MediaTek et USB Debug ADB)
+  - FASTBOOT (Fastboot Bootloader via 'fastboot devices')
+  - ADB (Débogage USB actif, réponse confirmée par 'adb devices')
+  - USB_NORMAL (Appareil branché allumé sans débogage / pont ADB inactif)
 """
 
 import os
@@ -30,11 +31,17 @@ except ImportError:
 # =====================================================================
 
 class DeviceMode(str, Enum):
-    """Modes de fonctionnement des appareils détectés."""
-    NONE = "NONE"
-    BROM = "BROM"                # BootROM matériel / Preloader MediaTek
-    FASTBOOT = "FASTBOOT"        # Fastboot bootloader Android
-    NORMAL = "NORMAL"            # Mode Normal / AT Modem / ADB Android
+    """
+    Modes de fonctionnement des appareils détectés.
+
+    Hiérarchie de priorité de scan : BROM > FASTBOOT > ADB > USB_NORMAL > NONE
+    """
+    NONE       = "NONE"         # Aucun appareil détecté
+    BROM       = "BROM"         # BootROM matériel / Preloader MediaTek (port VCOM)
+    FASTBOOT   = "FASTBOOT"     # Fastboot bootloader Android
+    ADB        = "ADB"          # Débogage USB actif (adb devices confirme la réponse)
+    USB_NORMAL = "USB_NORMAL"   # Appareil branché allumé, sans pont ADB ni BROM actif
+    NORMAL     = "NORMAL"       # Alias rétrocompatibilité (ports AT/Modem MediaTek)
 
 
 @dataclass
@@ -59,56 +66,98 @@ class ConnectedDevice:
         return self.mode == DeviceMode.FASTBOOT
 
     def is_normal(self) -> bool:
-        return self.mode == DeviceMode.NORMAL
+        """Retourne True pour tous les modes "appareil allumé" (ADB, Normal AT, USB Normal)."""
+        return self.mode in (DeviceMode.NORMAL, DeviceMode.ADB, DeviceMode.USB_NORMAL)
+
+    def is_adb(self) -> bool:
+        """Retourne True uniquement si le débogage ADB est actif et confirmé."""
+        return self.mode == DeviceMode.ADB
+
+    def is_usb_normal(self) -> bool:
+        """Retourne True si l'appareil est branché allumé sans pont debug actif."""
+        return self.mode == DeviceMode.USB_NORMAL
 
     @property
     def mode_display(self) -> str:
+        """Libellé convivial du mode, utilisé dans les badges et logs."""
         if self.mode == DeviceMode.BROM:
             return "BROM / Preloader"
         elif self.mode == DeviceMode.FASTBOOT:
             return "Fastboot"
+        elif self.mode == DeviceMode.ADB:
+            return "ADB (Débogage actif)"
+        elif self.mode == DeviceMode.USB_NORMAL:
+            return "Normal (non sécurisé)"
         elif self.mode == DeviceMode.NORMAL:
             return "Normal / AT"
         return "Aucun"
 
     @property
     def color(self) -> str:
-        """Couleur hex associée au mode (Vert éclatant si connecté, Rouge si déconnecté)."""
-        if self.mode != DeviceMode.NONE:
-            return "#2ecc71"        # 🟢 Vert éclatant dès détection
-        return "#e74c3c"            # 🔴 Rouge si aucun appareil
+        """
+        Couleur hex associée au mode :
+          🟢 Vert  — BROM, Fastboot, ADB actif (opérations possibles)
+          🟡 Jaune — USB Normal (branché mais sans protocole debug actif)
+          🔴 Rouge — Aucun appareil
+        """
+        if self.mode in (DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.ADB, DeviceMode.NORMAL):
+            return "#2ecc71"        # 🟢 Vert — opérations possibles
+        elif self.mode == DeviceMode.USB_NORMAL:
+            return "#f1c40f"        # 🟡 Jaune — branché mais inutilisable pour flash/FRP
+        return "#e74c3c"            # 🔴 Rouge — aucun appareil
 
     @property
     def status_emoji(self) -> str:
         """Émoticône représentative du statut."""
-        if self.mode != DeviceMode.NONE:
+        if self.mode in (DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.ADB, DeviceMode.NORMAL):
             return "🟢"
+        elif self.mode == DeviceMode.USB_NORMAL:
+            return "🟡"
         return "🔴"
 
     @property
     def badge_title(self) -> str:
-        """Titre standardisé selon les spécifications d'affichage en temps réel."""
+        """
+        Titre standardisé affiché dans le bandeau de statut et le badge d'en-tête.
+
+        Règles de libellé conformes aux specs Optima Telecom :
+          - BROM     → "Connecté en mode BROM / Preloader (Port COM...)"
+          - FASTBOOT → "Connecté en mode Fastboot"
+          - ADB      → "Connecté en mode ADB (Débogage actif)"
+          - USB_NORMAL → "Appareil branché (Mode Normal / Non sécurisé pour flash/FRP)"
+          - NORMAL   → "Connecté en mode Normal / AT"
+        """
         if self.mode == DeviceMode.BROM:
             port_name = self.port or self.identifier
-            return f"Appareil détecté en mode BROM / Preloader (Port {port_name})"
+            return f"Connecté en mode BROM / Preloader (Port {port_name})"
         elif self.mode == DeviceMode.FASTBOOT:
-            return "Appareil détecté en mode Fastboot"
+            return "Connecté en mode Fastboot"
+        elif self.mode == DeviceMode.ADB:
+            return "Connecté en mode ADB (Débogage actif)"
+        elif self.mode == DeviceMode.USB_NORMAL:
+            return "Appareil branché (Mode Normal / Non sécurisé pour flash/FRP)"
         elif self.mode == DeviceMode.NORMAL:
-            return "Appareil détecté en mode Normal / ADB"
+            return "Connecté en mode Normal / AT"
         return "Aucun appareil détecté"
 
     @property
     def badge_subtitle(self) -> str:
-        """Détail technique sous le titre de badge."""
+        """Détail technique affiché sous le titre de badge."""
         if self.mode == DeviceMode.BROM:
             vid_pid = f"VID:{self.vid:04X} PID:{self.pid:04X}" if self.vid and self.pid else "MediaTek VCOM"
             return f"{self.protocol or 'MediaTek BootROM'} • {vid_pid}"
         elif self.mode == DeviceMode.FASTBOOT:
             return f"Protocole Fastboot • Série : {self.serial_number or 'Inconnu'}"
+        elif self.mode == DeviceMode.ADB:
+            serial = self.serial_number or self.identifier
+            state = self.details.get("adb_state", "device")
+            return f"ADB Interface ({state}) • Série : {serial}"
+        elif self.mode == DeviceMode.USB_NORMAL:
+            return "Pour FRP / Flash : éteignez l'appareil et suivez l'assistant de connexion."
         elif self.mode == DeviceMode.NORMAL:
             target = self.port or self.serial_number or self.identifier
             return f"{self.protocol or 'Modem AT / Interface'} • {target}"
-        return "Surveillance active (BROM, Fastboot, Normal)"
+        return "Surveillance active (BROM, Fastboot, ADB)…"
 
 
 # =====================================================================
@@ -311,10 +360,17 @@ class DeviceDetector(QThread):
                 self._emit_status_update(detected)
 
     def _scan_all_candidates(self) -> List[ConnectedDevice]:
-        """Collecte l'ensemble des périphériques détectés."""
+        """
+        Collecte l'ensemble des périphériques détectés en respectant la hiérarchie :
+          BROM > FASTBOOT > ADB > USB_NORMAL
+
+        Règle importante : ADB n'est déclaré que si 'adb devices' répond réellement
+        avec un appareil en état 'device' ou 'recovery'. Le statut 'unauthorized'
+        est traité comme USB_NORMAL (débogage non autorisé).
+        """
         results: List[ConnectedDevice] = []
 
-        # 1. Analyse des ports COM (BROM, Preloader, Normal/AT)
+        # 1. Analyse des ports COM (BROM, Preloader, AT/Modem)
         com_devices = self._scan_com_ports()
         results.extend(com_devices)
 
@@ -323,11 +379,14 @@ class DeviceDetector(QThread):
         if fastboot_dev:
             results.append(fastboot_dev)
 
-        # 3. Analyse ADB si aucun Fastboot ni BROM n'est présent (mode Normal d'appoint)
+        # 3. Analyse ADB uniquement si pas encore de BROM ni Fastboot
+        #    → sépare ADB "actif" de "unauthorized" (USB Normal)
         if not results:
-            adb_dev = self._scan_adb()
+            adb_dev, usb_normal_dev = self._scan_adb_detailed()
             if adb_dev:
                 results.append(adb_dev)
+            elif usb_normal_dev:
+                results.append(usb_normal_dev)
 
         return results
 
@@ -473,35 +532,69 @@ class DeviceDetector(QThread):
         return None
 
     # -----------------------------------------------------------------
-    # 3. Détection ADB (Appareil allumé en mode Normal)
+    # 3. Détection ADB — distingue "actif" et "non autorisé / USB Normal"
     # -----------------------------------------------------------------
-    def _scan_adb(self) -> Optional[ConnectedDevice]:
-        """Vérifie si un appareil est joignable via adb devices (Mode Normal)."""
+    def _scan_adb_detailed(self):
+        """
+        Interroge 'adb devices' et retourne un tuple (adb_device, usb_normal_device).
+
+        - Si l'appareil répond en état 'device' ou 'recovery' → ADB actif (🟢)
+        - Si l'appareil répond en état 'unauthorized'          → USB Normal (🟡)
+          (câble branché, débogage USB désactivé ou non autorisé)
+        - Si aucune réponse valide                             → (None, None)
+
+        On ne déclare JAMAIS "ADB actif" si adb ne répond pas réellement.
+        """
         if not self._adb_bin:
-            return None
+            return None, None
 
         cmd = [self._adb_bin, "devices"]
         output = self._run_command_silent(cmd, timeout=0.8)
         if not output:
-            return None
+            return None, None
 
         lines = [line.strip() for line in output.splitlines() if line.strip()]
-        for line in lines[1:]:  # Ignorer la ligne 'List of devices attached'
+        for line in lines[1:]:  # Ignorer l'en-tête 'List of devices attached'
             parts = line.split()
-            if len(parts) >= 2 and parts[1].lower() in ("device", "recovery", "unauthorized"):
-                serial = parts[0]
-                state = parts[1].lower()
+            if len(parts) < 2:
+                continue
+            serial = parts[0]
+            state = parts[1].lower()
+
+            if state in ("device", "recovery"):
+                # ── ADB actif et confirmé (débogage USB autorisé) ──────
                 return ConnectedDevice(
-                    mode=DeviceMode.NORMAL,
+                    mode=DeviceMode.ADB,
                     identifier=f"ADB:{serial}",
                     port=None,
                     serial_number=serial,
-                    description=f"Appareil Android Normal/ADB ({serial})",
+                    description=f"Appareil Android — Débogage ADB actif ({serial})",
                     protocol=f"ADB Interface ({state})",
                     details={"serial": serial, "adb_state": state}
+                ), None
+
+            elif state == "unauthorized":
+                # ── USB branché, débogage non autorisé / désactivé ──────
+                # → Traité comme USB Normal (🟡), jamais comme ADB actif
+                return None, ConnectedDevice(
+                    mode=DeviceMode.USB_NORMAL,
+                    identifier=f"USB:{serial}",
+                    port=None,
+                    serial_number=serial,
+                    description=f"Appareil Android branché — ADB non autorisé ({serial})",
+                    protocol="USB Standard (débogage non autorisé)",
+                    details={"serial": serial, "adb_state": "unauthorized"}
                 )
 
-        return None
+        return None, None
+
+    def _scan_adb(self) -> Optional[ConnectedDevice]:
+        """
+        Compatibilité rétrograde : retourne uniquement l'appareil ADB actif (pas USB_NORMAL).
+        Utilisé par JITConnectionWorker._scan_all_candidates via l'ancien chemin.
+        """
+        adb_dev, _ = self._scan_adb_detailed()
+        return adb_dev
 
     # -----------------------------------------------------------------
     # Exécution silencieuse sous Windows (sans fenêtre noire cmd)
