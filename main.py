@@ -20,12 +20,25 @@ from gui.main_window import MainWindow
 
 def main():
     """Fonction principale de lancement de l'application."""
-    # 1. Nettoyage et initialisation autonome du serveur ADB au lancement
+    # 1. Réveil matériel USB + réinitialisation ADB avant tout démarrage de l'UI
+    #    (simule le comportement de réveil de TFT Unlock au lancement)
     try:
-        from core.detector import reset_adb_server
-        reset_adb_server()
+        from core.usb_reset import perform_hardware_wake, is_admin
+        perform_hardware_wake()
+        if not is_admin():
+            # Avertissement non-bloquant : certaines fonctions BROM peuvent nécessiter les droits admin
+            print(
+                "[USB-WAKE][WARNING] Application lancée sans droits Administrateur. "
+                "La détection BROM/COM peut être limitée.",
+                file=sys.stderr,
+            )
     except Exception:
-        pass
+        # Fallback : au minimum, on tente de réinitialiser le serveur ADB
+        try:
+            from core.detector import reset_adb_server
+            reset_adb_server()
+        except Exception:
+            pass
 
     # Activation du scaling haute DPI sur Windows
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)

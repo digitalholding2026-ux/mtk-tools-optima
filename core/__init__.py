@@ -7,6 +7,7 @@ from core.actions import (
 )
 from core.detector import DeviceDetector, JITConnectionWorker, ConnectedDevice, DeviceMode, reset_adb_server
 from core.mtk_communication import MTKCommunication
+from core.usb_reset import perform_hardware_wake, is_admin
 
 __all__ = [
     "read_device_info",
@@ -23,4 +24,6 @@ __all__ = [
     "DeviceMode",
     "MTKCommunication",
     "reset_adb_server",
+    "perform_hardware_wake",
+    "is_admin",
 ]
