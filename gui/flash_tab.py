@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Onglet Flash Tool - Flashage de firmware (scatter, ROM) pour MediaTek.
+S'adapte dynamiquement selon l'état de détection de l'appareil.
 """
 
 from PyQt5.QtWidgets import (
@@ -10,6 +11,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
+from core.detector import ConnectedDevice, DeviceMode
+
 COLOR_BG_TAB = "#1e2332"
 COLOR_BG_PANEL = "#161a28"
 COLOR_ACCENT = "#00a2ff"
@@ -17,15 +20,18 @@ COLOR_TEXT = "#e8eaf2"
 COLOR_TEXT_MUTED = "#8a92a8"
 COLOR_BORDER = "#2c334a"
 COLOR_SUCCESS = "#2ecc71"
+COLOR_WARNING = "#f1c40f"
+COLOR_CYAN = "#00c3ff"
 
 
 class FlashTab(QWidget):
-    """Onglet Flash Tool."""
+    """Onglet Flash Tool avec validation du mode d'accès BROM."""
 
     def __init__(self, mtk_comm, parent=None):
         super().__init__(parent)
         self.mtk_comm = mtk_comm
         self.device_connected = False
+        self.current_device: ConnectedDevice = None
         self.current_port = None
         self.firmware_path = None
 
@@ -33,19 +39,19 @@ class FlashTab(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(30, 25, 30, 25)
         layout.setSpacing(20)
 
-        # --- Appareil ---
-        device_group = QGroupBox("Appareil cible")
+        # --- Appareil cible ---
+        device_group = QGroupBox("Appareil cible (Détection automatique)")
         device_layout = QVBoxLayout(device_group)
-        self.lbl_device = QLabel("Aucun appareil connecté")
+        self.lbl_device = QLabel("Aucun appareil connecté - En attente de détection...")
         self.lbl_device.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         device_layout.addWidget(self.lbl_device)
         layout.addWidget(device_group)
 
         # --- Sélection du firmware ---
-        fw_group = QGroupBox("Firmware / Fichier de flash")
+        fw_group = QGroupBox("Firmware / Fichier de flash (Scatter MTK)")
         fw_layout = QVBoxLayout(fw_group)
 
         path_layout = QHBoxLayout()
@@ -63,6 +69,7 @@ class FlashTab(QWidget):
         """)
         btn_browse = QPushButton("Parcourir...")
         btn_browse.setFixedWidth(110)
+        btn_browse.setCursor(Qt.PointingHandCursor)
         btn_browse.clicked.connect(self._browse_firmware)
         path_layout.addWidget(self.txt_firmware)
         path_layout.addWidget(btn_browse)
@@ -106,6 +113,7 @@ class FlashTab(QWidget):
                 margin-top: 15px;
                 font-weight: bold;
                 color: {COLOR_TEXT};
+                padding: 15px;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -142,24 +150,47 @@ class FlashTab(QWidget):
         """)
 
     # ------------------------------------------------------------------
-    # Callbacks
+    # Callbacks de connexion
     # ------------------------------------------------------------------
-    def on_device_connected(self, port, info):
+    def on_device_connected(self, device_or_port, info=None):
+        if isinstance(device_or_port, ConnectedDevice):
+            dev = device_or_port
+        else:
+            dev = ConnectedDevice(
+                mode=DeviceMode.BROM,
+                identifier=str(device_or_port),
+                port=str(device_or_port),
+                description=str(info or "")
+            )
+
         self.device_connected = True
-        self.current_port = port
-        self.lbl_device.setText(f"{port} - {info}")
-        self.lbl_device.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 12px; font-weight: bold;")
+        self.current_device = dev
+        self.current_port = dev.port or dev.identifier
+
+        if dev.mode == DeviceMode.BROM:
+            self.lbl_device.setText(f"Mode BROM détecté sur {dev.port} - {dev.description}")
+            self.lbl_device.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 12px; font-weight: bold;")
+        elif dev.mode == DeviceMode.FASTBOOT:
+            self.lbl_device.setText(f"Mode Fastboot détecté ({dev.serial_number}) - Flash Scatter BROM indisponible en Fastboot")
+            self.lbl_device.setStyleSheet(f"color: {COLOR_CYAN}; font-size: 12px; font-weight: bold;")
+        else:
+            self.lbl_device.setText(f"Mode Normal détecté ({dev.port}) - Éteignez le téléphone pour le flash BROM")
+            self.lbl_device.setStyleSheet(f"color: {COLOR_WARNING}; font-size: 12px; font-weight: bold;")
+
         self._update_flash_button_state()
 
     def on_device_disconnected(self):
         self.device_connected = False
+        self.current_device = None
         self.current_port = None
-        self.lbl_device.setText("Aucun appareil connecté")
+        self.lbl_device.setText("Aucun appareil connecté - En attente de détection...")
         self.lbl_device.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         self._update_flash_button_state()
 
     def _update_flash_button_state(self):
-        self.btn_flash.setEnabled(self.device_connected and self.firmware_path is not None)
+        # Le flash scatter complet requiert un appareil connecté (préférablement BROM) et un fichier
+        is_ready = self.device_connected and (self.firmware_path is not None)
+        self.btn_flash.setEnabled(is_ready)
 
     # ------------------------------------------------------------------
     # Actions
@@ -177,7 +208,7 @@ class FlashTab(QWidget):
             self._update_flash_button_state()
 
     def _start_flash(self):
-        if not self.device_connected or not self.current_port:
+        if not self.device_connected or not self.current_device:
             QMessageBox.warning(self, "Appareil manquant", "Veuillez connecter un appareil MediaTek d'abord.")
             return
         if not self.firmware_path:
@@ -186,9 +217,10 @@ class FlashTab(QWidget):
 
         reply = QMessageBox.question(
             self, "Confirmer le flash",
-            f"Firmware : {self.firmware_path}\n\n"
-            "ATTENTION : Cette opération va effacer toutes les données de l'appareil.\n"
-            "Assurez-vous que l'appareil est en mode BROM / préloader.\n\nVoulez-vous continuer ?",
+            f"Firmware : {self.firmware_path}\n"
+            f"Cible : {self.lbl_device.text()}\n\n"
+            "ATTENTION : Cette opération va réécrire la mémoire de l'appareil.\n"
+            "Voulez-vous continuer ?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -198,7 +230,6 @@ class FlashTab(QWidget):
         self.btn_flash.setEnabled(False)
         self.progress_flash.setValue(0)
 
-        # Simulation du flash (à remplacer par la logique réelle dans core/mtk_communication.py)
         steps = [
             (15, "Connexion au chargeur d'amorçage (BROM)..."),
             (35, "Vérification du fichier scatter..."),
@@ -209,11 +240,9 @@ class FlashTab(QWidget):
         ]
         for pct, msg in steps:
             self.progress_flash.setValue(pct)
-            # Dans une version complète, utiliser un QThread ici aussi
             from PyQt5.QtWidgets import QApplication
             QApplication.processEvents()
-            # QtCore.QThread.msleep(500)  # à décommenter avec un vrai worker
 
         self.progress_flash.setValue(100)
-        self.btn_flash.setEnabled(self.device_connected and self.firmware_path is not None)
+        self._update_flash_button_state()
         QMessageBox.information(self, "Flash terminé", "Le firmware a été flashé avec succès.")

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Onglet Accueil (Dashboard) de l'application Optima MTK Tool.
-Affiche l'état général de connexion et des raccourcis rapides.
+Affiche l'état de détection automatique en temps réel et les raccourcis d'action.
 """
 
 from PyQt5.QtWidgets import (
@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QFont
 
+from core.detector import ConnectedDevice, DeviceMode
+
 COLOR_BG_TAB = "#1e2332"
 COLOR_BG_PANEL = "#161a28"
 COLOR_ACCENT = "#00a2ff"
@@ -19,76 +21,128 @@ COLOR_TEXT_MUTED = "#8a92a8"
 COLOR_BORDER = "#2c334a"
 COLOR_SUCCESS = "#2ecc71"
 COLOR_WARNING = "#f1c40f"
+COLOR_CYAN = "#00c3ff"
+COLOR_PURPLE = "#a29bfe"
 
 
 class DashboardTab(QWidget):
-    """Onglet Accueil avec état de connexion et actions rapides."""
+    """Onglet Accueil avec suivi dynamique des périphériques et actions rapides."""
 
-    def __init__(self, com_detector, mtk_comm, parent=None):
+    def __init__(self, detector, mtk_comm, parent=None):
         super().__init__(parent)
-        self.com_detector = com_detector
+        self.detector = detector
         self.mtk_comm = mtk_comm
         self.device_connected = False
-        self.current_port = None
+        self.current_device: ConnectedDevice = None
 
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(30, 25, 30, 25)
         layout.setSpacing(20)
 
-        # --- Bloc d'état de connexion ---
-        status_group = QGroupBox("État de la connexion")
+        # --- Bloc d'état de détection automatique ---
+        status_group = QGroupBox("Surveillance des périphériques (Temps Réel)")
         status_group.setObjectName("statusGroup")
         status_layout = QVBoxLayout(status_group)
+        status_layout.setSpacing(12)
 
-        self.lbl_port = QLabel("Aucun port détecté")
-        self.lbl_port.setObjectName("lblPort")
-        self.lbl_port.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        self.lbl_port.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
+        # Ligne 1 : Badge de mode et indicateur
+        header_row = QHBoxLayout()
+        self.badge_mode = QLabel("EN ATTENTE")
+        self.badge_mode.setObjectName("badgeMode")
+        self.badge_mode.setStyleSheet(self._badge_style("#8a92a8"))
 
-        self.lbl_status = QLabel("Statut : Déconnecté")
-        self.lbl_status.setObjectName("lblStatus")
-        self.lbl_status.setFont(QFont("Segoe UI", 11))
-        self.lbl_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
+        self.lbl_headline = QLabel("En attente de connexion d'un appareil...")
+        self.lbl_headline.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        self.lbl_headline.setStyleSheet(f"color: {COLOR_TEXT};")
 
-        status_layout.addWidget(self.lbl_port)
-        status_layout.addWidget(self.lbl_status)
+        header_row.addWidget(self.badge_mode)
+        header_row.addWidget(self.lbl_headline)
+        header_row.addStretch()
+        status_layout.addLayout(header_row)
+
+        # Ligne 2 : Détails techniques de connexion
+        details_layout = QGridLayout()
+        details_layout.setHorizontalSpacing(25)
+        details_layout.setVerticalSpacing(6)
+
+        self.lbl_port_label = QLabel("Port / Connexion :")
+        self.lbl_port_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        self.lbl_port_value = QLabel("Aucun")
+        self.lbl_port_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: bold;")
+
+        self.lbl_proto_label = QLabel("Protocole actif :")
+        self.lbl_proto_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        self.lbl_proto_value = QLabel("Scan automatique actif (BROM / Fastboot / Normal)")
+        self.lbl_proto_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+
+        self.lbl_advice_label = QLabel("Recommandation :")
+        self.lbl_advice_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        self.lbl_advice_value = QLabel("Connectez l'appareil éteint avec Volume- pour le mode BROM, ou allumez en mode Fastboot.")
+        self.lbl_advice_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-style: italic;")
+
+        details_layout.addWidget(self.lbl_port_label, 0, 0)
+        details_layout.addWidget(self.lbl_port_value, 0, 1)
+        details_layout.addWidget(self.lbl_proto_label, 1, 0)
+        details_layout.addWidget(self.lbl_proto_value, 1, 1)
+        details_layout.addWidget(self.lbl_advice_label, 2, 0)
+        details_layout.addWidget(self.lbl_advice_value, 2, 1)
+
+        status_layout.addLayout(details_layout)
         layout.addWidget(status_group)
 
         # --- Actions rapides ---
-        actions_group = QGroupBox("Actions rapides")
+        actions_group = QGroupBox("Actions rapides selon le mode détecté")
         actions_group.setObjectName("actionsGroup")
         actions_layout = QGridLayout(actions_group)
         actions_layout.setSpacing(15)
 
-        btn_detect = QPushButton("Détecter l'appareil")
-        btn_detect.setIcon(self.style().standardIcon(self.style().SP_MediaVolume))
-        btn_detect.setFixedHeight(50)
-        btn_detect.clicked.connect(self._detect_device)
+        self.btn_frp = QPushButton("🔒 Accéder au déblocage FRP")
+        self.btn_frp.setFixedHeight(50)
+        self.btn_frp.setCursor(Qt.PointingHandCursor)
+        self.btn_frp.clicked.connect(self._go_to_frp)
 
-        btn_frp = QPushButton("Accéder au déblocage FRP")
-        btn_frp.setFixedHeight(50)
-        btn_frp.clicked.connect(self._go_to_frp)
+        self.btn_flash = QPushButton("⚡ Accéder à l'outil Flash")
+        self.btn_flash.setFixedHeight(50)
+        self.btn_flash.setCursor(Qt.PointingHandCursor)
+        self.btn_flash.clicked.connect(self._go_to_flash)
 
-        btn_flash = QPushButton("Accéder à l'outil Flash")
-        btn_flash.setFixedHeight(50)
-        btn_flash.clicked.connect(self._go_to_flash)
+        self.btn_info = QPushButton("📋 Voir les informations détaillées")
+        self.btn_info.setFixedHeight(50)
+        self.btn_info.setCursor(Qt.PointingHandCursor)
+        self.btn_info.clicked.connect(self._go_to_info)
 
-        btn_info = QPushButton("Voir les informations appareil")
-        btn_info.setFixedHeight(50)
-        btn_info.clicked.connect(self._go_to_info)
+        self.btn_rescan = QPushButton("🔄 Forcer un scan immédiat")
+        self.btn_rescan.setFixedHeight(50)
+        self.btn_rescan.setCursor(Qt.PointingHandCursor)
+        self.btn_rescan.clicked.connect(self._force_scan)
 
-        actions_layout.addWidget(btn_detect, 0, 0)
-        actions_layout.addWidget(btn_frp, 0, 1)
-        actions_layout.addWidget(btn_flash, 1, 0)
-        actions_layout.addWidget(btn_info, 1, 1)
+        actions_layout.addWidget(self.btn_frp, 0, 0)
+        actions_layout.addWidget(self.btn_flash, 0, 1)
+        actions_layout.addWidget(self.btn_info, 1, 0)
+        actions_layout.addWidget(self.btn_rescan, 1, 1)
 
         layout.addWidget(actions_group)
         layout.addStretch()
 
         self._apply_stylesheet()
+
+    def _badge_style(self, color_hex: str) -> str:
+        """Génère le style CSS du badge de mode."""
+        return f"""
+            QLabel#badgeMode {{
+                background-color: {color_hex}22;
+                color: {color_hex};
+                border: 1px solid {color_hex};
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: bold;
+                letter-spacing: 0.5px;
+            }}
+        """
 
     def _apply_stylesheet(self):
         self.setStyleSheet(f"""
@@ -103,6 +157,7 @@ class DashboardTab(QWidget):
                 margin-top: 15px;
                 font-weight: bold;
                 color: {COLOR_TEXT};
+                padding: 15px;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -117,6 +172,7 @@ class DashboardTab(QWidget):
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 12px;
+                font-weight: bold;
             }}
             QPushButton:hover {{
                 border-color: {COLOR_ACCENT};
@@ -129,41 +185,83 @@ class DashboardTab(QWidget):
         """)
 
     # ------------------------------------------------------------------
-    # Slots / Callbacks
+    # Mises à jour dynamiques de connexion
     # ------------------------------------------------------------------
-    def on_device_connected(self, port, info):
-        """Appelé quand un appareil est connecté."""
+    def on_device_connected(self, device_or_port, info=None):
+        """Appelé quand un appareil est détecté en arrière-plan."""
+        if isinstance(device_or_port, ConnectedDevice):
+            dev = device_or_port
+        else:
+            # Rétrocompatibilité si appelé avec des chaînes
+            dev = ConnectedDevice(
+                mode=DeviceMode.BROM,
+                identifier=str(device_or_port),
+                port=str(device_or_port),
+                description=str(info or ""),
+                protocol="MediaTek VCOM"
+            )
+
         self.device_connected = True
-        self.current_port = port
-        self.lbl_port.setText(f"Port : {port}")
-        self.lbl_port.setStyleSheet(f"color: {COLOR_SUCCESS};")
-        self.lbl_status.setText(f"Statut : Connecté - {info}")
-        self.lbl_status.setStyleSheet(f"color: {COLOR_SUCCESS};")
+        self.current_device = dev
+
+        # Mise à jour du badge de mode
+        self.badge_mode.setText(dev.mode_display.upper())
+        self.badge_mode.setStyleSheet(self._badge_style(dev.color))
+
+        # Titre et port
+        loc = dev.port or dev.serial_number or dev.identifier
+        self.lbl_headline.setText(f"{dev.badge_title}")
+        self.lbl_port_value.setText(f"{loc} ({dev.description})")
+        self.lbl_port_value.setStyleSheet(f"color: {dev.color}; font-size: 12px; font-weight: bold;")
+
+        self.lbl_proto_value.setText(dev.protocol or dev.mode_display)
+        self.lbl_proto_value.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 12px;")
+
+        # Conseils contextuels selon le mode
+        if dev.mode == DeviceMode.BROM:
+            self.lbl_advice_value.setText("✅ Mode BROM actif : Parfait pour le déblocage FRP et le flash de firmware.")
+            self.lbl_advice_value.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 11px;")
+        elif dev.mode == DeviceMode.FASTBOOT:
+            self.lbl_advice_value.setText("⚡ Mode Fastboot actif : Prêt pour le déblocage FRP OEM et les commandes bootloader.")
+            self.lbl_advice_value.setStyleSheet(f"color: {COLOR_CYAN}; font-size: 11px;")
+        elif dev.mode == DeviceMode.NORMAL:
+            self.lbl_advice_value.setText("ℹ Mode Normal/AT actif : Pour une opération de flash bas-niveau, éteignez le téléphone et rebranchez.")
+            self.lbl_advice_value.setStyleSheet(f"color: {COLOR_PURPLE}; font-size: 11px;")
 
     def on_device_disconnected(self):
         """Appelé quand l'appareil est déconnecté."""
         self.device_connected = False
-        self.current_port = None
-        self.lbl_port.setText("Aucun port détecté")
-        self.lbl_port.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
-        self.lbl_status.setText("Statut : Déconnecté")
-        self.lbl_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
+        self.current_device = None
 
-    def _detect_device(self):
-        from gui.main_window import MainWindow
-        # Délègue à la fenêtre principale si besoin
-        parent = self.window()
-        if hasattr(parent, "_on_detect_clicked"):
-            parent._on_detect_clicked()
+        self.badge_mode.setText("EN ATTENTE")
+        self.badge_mode.setStyleSheet(self._badge_style(COLOR_TEXT_MUTED))
+
+        self.lbl_headline.setText("En attente de connexion d'un appareil...")
+        self.lbl_port_value.setText("Aucun")
+        self.lbl_port_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+
+        self.lbl_proto_value.setText("Scan automatique actif (BROM / Fastboot / Normal)")
+        self.lbl_proto_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+
+        self.lbl_advice_value.setText("Connectez l'appareil éteint avec Volume- pour le mode BROM, ou allumez en mode Fastboot.")
+        self.lbl_advice_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-style: italic;")
+
+    def _force_scan(self):
+        """Déclenche une analyse immédiate sans attendre l'intervalle."""
+        if hasattr(self.detector, "scan_now"):
+            self.detector.scan_now()
 
     def _go_to_frp(self):
-        tabs = self.window().tabs
-        tabs.setCurrentIndex(1)
+        main_win = self.window()
+        if hasattr(main_win, "tabs"):
+            main_win.tabs.setCurrentIndex(1)
 
     def _go_to_flash(self):
-        tabs = self.window().tabs
-        tabs.setCurrentIndex(2)
+        main_win = self.window()
+        if hasattr(main_win, "tabs"):
+            main_win.tabs.setCurrentIndex(2)
 
     def _go_to_info(self):
-        tabs = self.window().tabs
-        tabs.setCurrentIndex(3)
+        main_win = self.window()
+        if hasattr(main_win, "tabs"):
+            main_win.tabs.setCurrentIndex(3)
