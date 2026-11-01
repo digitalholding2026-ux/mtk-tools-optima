@@ -26,6 +26,19 @@ try:
 except ImportError:
     HAS_SERIAL = False
 
+try:
+    from core.usb_scanner import UsbScanner, UsbDeviceInfo, scan_mtk_devices, HAS_PYUSB
+    _usb_scanner: Optional[UsbScanner] = None  # Initialisé à la première utilisation
+    def _get_usb_scanner() -> "UsbScanner":
+        global _usb_scanner
+        if _usb_scanner is None:
+            _usb_scanner = UsbScanner()
+        return _usb_scanner
+except ImportError:
+    HAS_PYUSB = False
+    def _get_usb_scanner():
+        return None
+
 
 # =====================================================================
 # Modèles de données
@@ -526,9 +539,13 @@ class DeviceDetector(QThread):
     def _scan_all_candidates(self) -> List[ConnectedDevice]:
         """
         Collecte l'ensemble des périphériques détectés en respectant la hiérarchie :
-          BROM > FASTBOOT > ADB > USB_NORMAL
+          USB-Direct(PyUSB) > BROM(COM) > FASTBOOT > ADB > USB_NORMAL
 
         RÈGLES D'AUTONOMIE & PERFORMANCE :
+        0. [PRIORITÉ MAX] Scan USB bas-niveau via PyUSB/libusb :
+           Détecte VID 0x0E8D directement sur le bus USB, avant l'attribution d'un
+           port COM par Windows. Capture la fenêtre BROM critique (~2–4s).
+           Fonctionne sans pilote COM (uniquement WinUSB/libusb-win32 via Zadig).
         1. Ports COM inspectés passivement via list_ports.comports() (zéro serial.Serial()).
         2. Priorité BROM immédiate : Si un port BROM ou Preloader est détecté, on le retourne
            instantanément sans perdre de temps à appeler fastboot/adb pour ne pas rater
@@ -537,10 +554,27 @@ class DeviceDetector(QThread):
         """
         results: List[ConnectedDevice] = []
 
+        # 0. [NOUVEAU] Scan USB direct via PyUSB / libusb (VID 0x0E8D, avant le port COM)
+        #    Détection la plus rapide — aucune subprocess, lecture hardware directe.
+        try:
+            usb_devices = self._scan_usb_direct()
+            results.extend(usb_devices)
+        except Exception:
+            pass
+
+        # Si un BROM est déjà détecté en USB direct → retour immédiat (priorité absolue)
+        if any(d.mode == DeviceMode.BROM for d in results):
+            return results
+
         # 1. Analyse passive des ports COM (BROM, Preloader, AT/Modem)
         try:
             com_devices = self._scan_com_ports()
-            results.extend(com_devices)
+            # Dédoublonnage : éviter les doublons si le même périphérique est vu par COM ET PyUSB
+            existing_vid_pids = {(d.vid, d.pid) for d in results if d.vid and d.pid}
+            for com_dev in com_devices:
+                if com_dev.vid and com_dev.pid and (com_dev.vid, com_dev.pid) in existing_vid_pids:
+                    continue  # Déjà détecté via PyUSB, on ne duplique pas
+                results.append(com_dev)
         except Exception:
             pass
 
@@ -567,6 +601,98 @@ class DeviceDetector(QThread):
                     results.append(usb_normal_dev)
             except Exception:
                 pass
+
+        return results
+
+    # -----------------------------------------------------------------
+    # 0. [NOUVEAU] Détection USB directe via PyUSB / libusb (VID 0x0E8D)
+    # -----------------------------------------------------------------
+    def _scan_usb_direct(self) -> List[ConnectedDevice]:
+        """
+        Scanne le bus USB directement via PyUSB / libusb (lecture hardware brute).
+
+        Avantages par rapport au scan COM classique :
+          • Détecte le chipset MTK AVANT que Windows attribue un port COM virtuel.
+          • Capture la fenêtre BootROM critique (~2–4 secondes) même sans pilote COM.
+          • Fonctionne avec les pilotes WinUSB / libusb-win32 installés via Zadig.
+          • Aucun handle conservé entre les scans — lecture 100% passive.
+
+        Retourne [] si PyUSB / libusb ne sont pas disponibles (pas de crash).
+        Note sur les pilotes : Pour détecter le BROM via cette méthode, le pilote
+        WinUSB ou libusb-win32 doit être associé au VID 0x0E8D PID 0x0003 via Zadig.
+        En l'absence de ce pilote, la détection COM classique reste le chemin principal.
+        """
+        if not HAS_PYUSB:
+            return []
+
+        scanner = _get_usb_scanner()
+        if scanner is None or not scanner.is_available:
+            return []
+
+        results: List[ConnectedDevice] = []
+
+        try:
+            usb_devices = scanner.scan_mtk_devices()
+        except Exception as exc:
+            # Le scan USB ne doit JAMAIS faire crasher le thread de détection
+            return []
+
+        for usb_dev in usb_devices:
+            try:
+                # Conversion UsbDeviceInfo → ConnectedDevice (modèle unifié du détecteur)
+                if usb_dev.mode == "BROM":
+                    device_mode = DeviceMode.BROM
+                    protocol = usb_dev.protocol or "MediaTek USB (PyUSB Direct)"
+                elif usb_dev.mode == "FASTBOOT":
+                    device_mode = DeviceMode.FASTBOOT
+                    protocol = usb_dev.protocol or "Fastboot via USB Direct"
+                elif usb_dev.mode == "NORMAL":
+                    device_mode = DeviceMode.NORMAL
+                    protocol = usb_dev.protocol or "Protocole AT / Modem MTK"
+                else:
+                    device_mode = DeviceMode.USB_NORMAL
+                    protocol = usb_dev.protocol or "Périphérique USB MediaTek"
+
+                # Identifiant stable unique (bus:addr ou serial si disponible)
+                identifier = usb_dev.identifier
+
+                connected = ConnectedDevice(
+                    mode=device_mode,
+                    identifier=identifier,
+                    port=None,       # Pas de port COM en détection USB directe
+                    serial_number=usb_dev.serial_number or None,
+                    description=usb_dev.description,
+                    vid=usb_dev.vid,
+                    pid=usb_dev.pid,
+                    manufacturer=usb_dev.manufacturer,
+                    hwid=f"USB\\VID_{usb_dev.vid:04X}&PID_{usb_dev.pid:04X}",
+                    protocol=protocol,
+                    details={
+                        "vid": usb_dev.vid,
+                        "pid": usb_dev.pid,
+                        "bus": usb_dev.bus,
+                        "address": usb_dev.address,
+                        "source": "pyusb_direct",
+                        "type": usb_dev.mode,
+                    }
+                )
+                results.append(connected)
+
+                # Log informatif (une seule fois par détection nouvelle, pas en boucle)
+                mode_lbl = {
+                    DeviceMode.BROM: "BROM/Preloader",
+                    DeviceMode.NORMAL: "Normal/AT",
+                    DeviceMode.FASTBOOT: "Fastboot",
+                    DeviceMode.USB_NORMAL: "USB Normal",
+                }.get(device_mode, device_mode.value)
+                self.log_message.emit(
+                    f"[PyUSB] Périphérique MediaTek détecté — {usb_dev.vid_pid_str} "
+                    f"mode {mode_lbl} ({usb_dev.description})",
+                    "info"
+                )
+
+            except Exception:
+                continue
 
         return results
 
