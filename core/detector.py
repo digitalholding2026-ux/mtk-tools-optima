@@ -12,10 +12,11 @@ import os
 import sys
 import time
 import shutil
+import threading
 import subprocess
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -135,9 +136,9 @@ class ConnectedDevice:
         elif self.mode == DeviceMode.ADB:
             return "Connecté en mode ADB (Débogage actif)"
         elif self.mode == DeviceMode.USB_NORMAL:
-            return "Appareil branché (Mode Normal / Non sécurisé pour flash/FRP)"
+            return "Appareil branché (Mode Normal / Non sécurisé pour les opérations de flash/FRP)"
         elif self.mode == DeviceMode.NORMAL:
-            return "Connecté en mode Normal / AT"
+            return "Appareil branché (Mode Normal / Non sécurisé pour les opérations de flash/FRP)"
         return "Aucun appareil détecté"
 
     @property
@@ -231,6 +232,7 @@ class DeviceDetector(QThread):
         self._interval = interval
         self._running = False
         self._current_device: Optional[ConnectedDevice] = None
+        self._scan_lock = threading.Lock()
         self._fastboot_bin = self._find_fastboot_executable()
         self._adb_bin = self._find_adb_executable()
 
@@ -238,50 +240,80 @@ class DeviceDetector(QThread):
     # Localisation des binaires utilitaires (fastboot, adb)
     # -----------------------------------------------------------------
     def _find_fastboot_executable(self) -> Optional[str]:
-        """Localise l'exécutable fastboot dans PATH ou dans les dossiers du projet."""
-        found = shutil.which("fastboot")
-        if found:
-            return found
-
-        # Chemins relatifs possibles
+        """Localise l'exécutable fastboot dans tools/, PATH ou Android SDK."""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         candidates = [
-            os.path.join(base_dir, "platform-tools", "fastboot.exe"),
             os.path.join(base_dir, "tools", "fastboot.exe"),
+            os.path.join(base_dir, "tools", "fastboot"),
+            os.path.join(base_dir, "platform-tools", "fastboot.exe"),
             os.path.join(base_dir, "assets", "bin", "fastboot.exe"),
             os.path.join(base_dir, "bin", "fastboot.exe"),
         ]
-
-        # Chemins standards Android SDK sous Windows
-        local_app_data = os.environ.get("LOCALAPPDATA", "")
-        if local_app_data:
-            candidates.append(os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "fastboot.exe"))
-
         for path in candidates:
-            if os.path.isfile(path) and os.access(path, os.X_OK):
+            if os.path.isfile(path) and (sys.platform != "win32" or os.access(path, os.X_OK)):
+                return path
+
+        found = shutil.which("fastboot") or shutil.which("fastboot.exe")
+        if found:
+            return found
+
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        user_profile = os.environ.get("USERPROFILE", "")
+        sdk_candidates = []
+        if local_app_data:
+            sdk_candidates.append(os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "fastboot.exe"))
+        if user_profile:
+            sdk_candidates.append(os.path.join(user_profile, "AppData", "Local", "Android", "Sdk", "platform-tools", "fastboot.exe"))
+
+        sdk_candidates.extend([
+            r"C:\adb\fastboot.exe",
+            r"C:\platform-tools\fastboot.exe",
+            r"C:\Program Files\Android\platform-tools\fastboot.exe",
+            r"C:\Program Files (x86)\Android\platform-tools\fastboot.exe",
+        ])
+        for path in sdk_candidates:
+            if os.path.isfile(path):
                 return path
 
         return "fastboot"  # Fallback sur la commande système
 
     def _find_adb_executable(self) -> Optional[str]:
-        """Localise l'exécutable adb pour détection complémentaire en mode Normal."""
-        found = shutil.which("adb")
+        """
+        Localise l'exécutable adb dans tools/, PATH ou Android SDK.
+        Vérifie prioritairement le dossier 'tools/' embarqué dans le projet.
+        """
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidates = [
+            os.path.join(base_dir, "tools", "adb.exe"),
+            os.path.join(base_dir, "tools", "adb"),
+            os.path.join(base_dir, "platform-tools", "adb.exe"),
+            os.path.join(base_dir, "assets", "bin", "adb.exe"),
+            os.path.join(base_dir, "bin", "adb.exe"),
+        ]
+        for path in candidates:
+            if os.path.isfile(path) and (sys.platform != "win32" or os.access(path, os.X_OK)):
+                return path
+
+        found = shutil.which("adb") or shutil.which("adb.exe")
         if found:
             return found
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        candidates = [
-            os.path.join(base_dir, "platform-tools", "adb.exe"),
-            os.path.join(base_dir, "tools", "adb.exe"),
-            os.path.join(base_dir, "assets", "bin", "adb.exe"),
-        ]
-
         local_app_data = os.environ.get("LOCALAPPDATA", "")
+        user_profile = os.environ.get("USERPROFILE", "")
+        sdk_candidates = []
         if local_app_data:
-            candidates.append(os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "adb.exe"))
+            sdk_candidates.append(os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "adb.exe"))
+        if user_profile:
+            sdk_candidates.append(os.path.join(user_profile, "AppData", "Local", "Android", "Sdk", "platform-tools", "adb.exe"))
 
-        for path in candidates:
-            if os.path.isfile(path) and os.access(path, os.X_OK):
+        sdk_candidates.extend([
+            r"C:\adb\adb.exe",
+            r"C:\platform-tools\adb.exe",
+            r"C:\Program Files\Android\platform-tools\adb.exe",
+            r"C:\Program Files (x86)\Android\platform-tools\adb.exe",
+        ])
+        for path in sdk_candidates:
+            if os.path.isfile(path):
                 return path
 
         return "adb"
@@ -302,18 +334,34 @@ class DeviceDetector(QThread):
         self._running = False
         self.wait(2000)
 
-    def scan_now(self):
-        """Force une analyse immédiate sans attendre l'intervalle."""
-        self._perform_scan()
+    def scan_now(self, force_refresh: bool = True) -> Optional[ConnectedDevice]:
+        """
+        Force une analyse synchrone et immédiate sans attendre l'intervalle de polling.
+        Émet instantanément les signaux Qt vers l'interface graphique (GUI).
+        Retourne l'appareil détecté ou None.
+        """
+        return self._perform_scan(force_emit=force_refresh)
 
     def run(self):
-        """Boucle de surveillance d'arrière-plan."""
+        """Boucle de surveillance d'arrière-plan résiliente."""
         self._running = True
         while self._running:
             try:
-                self._perform_scan()
+                self._perform_scan(force_emit=False)
+            except FileNotFoundError:
+                # Binaire (adb, fastboot) introuvable dans le système ou tools/
+                pass
+            except PermissionError:
+                # Accès refusé temporaire sur un port USB/COM en cours d'énumération
+                pass
+            except subprocess.TimeoutExpired:
+                # Timeout d'une commande subprocess
+                pass
+            except (subprocess.SubprocessError, OSError):
+                pass
             except Exception as e:
-                self.log_message.emit(f"Erreur lors de la détection automatique : {str(e)}", "error")
+                # Toute autre exception inattendue est capturée pour ne jamais tuer le thread
+                pass
 
             # Sommeil par micro-intervalles pour arrêt immédiat lors de la fermeture
             steps = int(self._interval * 10)
@@ -325,45 +373,56 @@ class DeviceDetector(QThread):
     # -----------------------------------------------------------------
     # Logique d'analyse des périphériques
     # -----------------------------------------------------------------
-    def _perform_scan(self):
-        """Scanne les ports COM et Fastboot, puis met à jour l'état si changement."""
-        devices = self._scan_all_candidates()
+    def _perform_scan(self, force_emit: bool = False) -> Optional[ConnectedDevice]:
+        """
+        Scanne les ports COM, Fastboot et ADB en respectant la hiérarchie.
+        Thread-safe grâce à un verrou exclusif.
+        Émet les signaux d'interface dès que l'état change ou si force_emit est True.
+        """
+        with self._scan_lock:
+            try:
+                devices = self._scan_all_candidates()
+            except Exception:
+                devices = []
 
-        # Sélection de l'appareil prioritaire : BROM > FASTBOOT > ADB > NORMAL > USB_NORMAL
-        detected: Optional[ConnectedDevice] = None
-        if devices:
-            priority_order = {
-                DeviceMode.BROM: 1,
-                DeviceMode.FASTBOOT: 2,
-                DeviceMode.ADB: 3,
-                DeviceMode.NORMAL: 4,
-                DeviceMode.USB_NORMAL: 5,
-            }
-            devices.sort(key=lambda d: priority_order.get(d.mode, 99))
-            detected = devices[0]
+            # Sélection de l'appareil prioritaire : BROM > FASTBOOT > ADB > USB_NORMAL > NORMAL
+            detected: Optional[ConnectedDevice] = None
+            if devices:
+                priority_order = {
+                    DeviceMode.BROM: 1,
+                    DeviceMode.FASTBOOT: 2,
+                    DeviceMode.ADB: 3,
+                    DeviceMode.USB_NORMAL: 4,
+                    DeviceMode.NORMAL: 5,
+                }
+                devices.sort(key=lambda d: priority_order.get(d.mode, 99))
+                detected = devices[0]
 
-        # Comparaison avec l'état précédent
-        old = self._current_device
+            # Comparaison avec l'état précédent
+            old = self._current_device
 
-        if detected is None and old is not None:
-            # Périphérique déconnecté
-            self._current_device = None
-            self._notify_lost(old)
-            self._emit_status_update(None)
+            if detected is None:
+                if old is not None or force_emit:
+                    self._current_device = None
+                    if old is not None:
+                        self._notify_lost(old)
+                    self._emit_status_update(None)
 
-        elif detected is not None and old is None:
-            # Nouveau périphérique connecté
-            self._current_device = detected
-            self._notify_detected(detected)
-            self._emit_status_update(detected)
+            else:
+                # Appareil détecté
+                state_changed = (
+                    old is None or
+                    (detected.identifier != old.identifier) or
+                    (detected.mode != old.mode)
+                )
+                if state_changed or force_emit:
+                    self._current_device = detected
+                    if old is not None and (old.identifier != detected.identifier or old.mode != detected.mode):
+                        self._notify_lost(old)
+                    self._notify_detected(detected)
+                    self._emit_status_update(detected)
 
-        elif detected is not None and old is not None:
-            # Vérifier si l'appareil ou le mode a changé
-            if (detected.identifier != old.identifier) or (detected.mode != old.mode):
-                self._current_device = detected
-                self._notify_lost(old)
-                self._notify_detected(detected)
-                self._emit_status_update(detected)
+            return detected
 
     def _scan_all_candidates(self) -> List[ConnectedDevice]:
         """
@@ -377,22 +436,31 @@ class DeviceDetector(QThread):
         results: List[ConnectedDevice] = []
 
         # 1. Analyse des ports COM (BROM, Preloader, AT/Modem)
-        com_devices = self._scan_com_ports()
-        results.extend(com_devices)
+        try:
+            com_devices = self._scan_com_ports()
+            results.extend(com_devices)
+        except Exception:
+            pass
 
         # 2. Analyse Fastboot (via commande 'fastboot devices')
-        fastboot_dev = self._scan_fastboot()
-        if fastboot_dev:
-            results.append(fastboot_dev)
+        try:
+            fastboot_dev = self._scan_fastboot()
+            if fastboot_dev:
+                results.append(fastboot_dev)
+        except Exception:
+            pass
 
         # 3. Analyse ADB uniquement si pas encore de BROM ni Fastboot
         #    → sépare ADB "actif" de "unauthorized" (USB Normal)
         if not results:
-            adb_dev, usb_normal_dev = self._scan_adb_detailed()
-            if adb_dev:
-                results.append(adb_dev)
-            elif usb_normal_dev:
-                results.append(usb_normal_dev)
+            try:
+                adb_dev, usb_normal_dev = self._scan_adb_detailed()
+                if adb_dev:
+                    results.append(adb_dev)
+                elif usb_normal_dev:
+                    results.append(usb_normal_dev)
+            except Exception:
+                pass
 
         return results
 
@@ -507,92 +575,168 @@ class DeviceDetector(QThread):
     # -----------------------------------------------------------------
     def _scan_fastboot(self) -> Optional[ConnectedDevice]:
         """Exécute 'fastboot devices' sans bloquer l'UI et sans pop-up de console cmd."""
-        if not self._fastboot_bin:
+        try:
+            fb_bin = self._find_fastboot_executable() or "fastboot"
+            cmd = [fb_bin, "devices"]
+            output = self._run_command_silent(cmd, timeout=2.0)
+            if not output:
+                return None
+
+            # Format typique de la sortie :
+            # 0123456789ABCDEF\tfastboot
+            # ou 0123456789ABCDEF fastboot
+            for line in output.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].lower() == "fastboot":
+                    serial = parts[0]
+                    return ConnectedDevice(
+                        mode=DeviceMode.FASTBOOT,
+                        identifier=f"FASTBOOT:{serial}",
+                        port=None,
+                        serial_number=serial,
+                        description=f"Appareil Android Fastboot ({serial})",
+                        protocol="Protocole Fastboot Bootloader",
+                        details={"serial": serial, "fastboot": True}
+                    )
             return None
-
-        cmd = [self._fastboot_bin, "devices"]
-        output = self._run_command_silent(cmd, timeout=0.8)
-        if not output:
+        except Exception:
             return None
-
-        # Format typique de la sortie :
-        # 0123456789ABCDEF\tfastboot
-        # ou 0123456789ABCDEF fastboot
-        for line in output.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split()
-            if len(parts) >= 2 and parts[1].lower() == "fastboot":
-                serial = parts[0]
-                return ConnectedDevice(
-                    mode=DeviceMode.FASTBOOT,
-                    identifier=f"FASTBOOT:{serial}",
-                    port=None,
-                    serial_number=serial,
-                    description=f"Appareil Android Fastboot ({serial})",
-                    protocol="Protocole Fastboot Bootloader",
-                    details={"serial": serial, "fastboot": True}
-                )
-
-        return None
 
     # -----------------------------------------------------------------
     # 3. Détection ADB — distingue "actif" et "non autorisé / USB Normal"
     # -----------------------------------------------------------------
-    def _scan_adb_detailed(self):
+    def _execute_adb_devices(self) -> Optional[str]:
+        """
+        Exécute 'adb devices' de façon robuste selon les spécifications :
+        - subprocess.run([adb_bin, "devices"], capture_output=True, text=True, timeout=2)
+        - Évite le blocage indéfini si le serveur ADB ne répond pas
+        - Masque la fenêtre cmd console sous Windows (CREATE_NO_WINDOW / SW_HIDE)
+        - Capture proprement FileNotFoundError, TimeoutExpired, etc.
+        """
+        adb_bin = self._find_adb_executable() or "adb"
+        cmd = [adb_bin, "devices"]
+
+        creationflags = 0
+        startupinfo = None
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+            startupinfo.wShowWindow = 0  # SW_HIDE
+
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=creationflags,
+                startupinfo=startupinfo
+            )
+            # Vérifier stdout en priorité (contient la liste des devices)
+            if res.stdout:
+                return res.stdout
+            if res.returncode == 0:
+                return res.stdout or ""
+            return None
+        except FileNotFoundError:
+            # ADB non installé ou introuvable dans PATH / tools
+            return None
+        except subprocess.TimeoutExpired:
+            # ADB serveur bloqué ou ne répondant pas dans les 2 secondes
+            return None
+        except (PermissionError, OSError):
+            return None
+        except Exception:
+            return None
+
+    def _scan_adb_detailed(self) -> Tuple[Optional[ConnectedDevice], Optional[ConnectedDevice]]:
         """
         Interroge 'adb devices' et retourne un tuple (adb_device, usb_normal_device).
 
-        - Si l'appareil répond en état 'device' ou 'recovery' → ADB actif (🟢)
-        - Si l'appareil répond en état 'unauthorized'          → USB Normal (🟡)
-          (câble branché, débogage USB désactivé ou non autorisé)
-        - Si aucune réponse valide                             → (None, None)
+        - Si l'appareil répond en état 'device', 'recovery' ou 'sideload' :
+            → ADB actif (🟢 "Connecté en mode ADB (Débogage actif)")
+        - Si l'appareil répond en état 'unauthorized', 'offline' ou 'authorizing' :
+            → USB Normal (🟡 "Appareil branché (Mode Normal / Non sécurisé pour les opérations de flash/FRP)")
+        - Si aucune réponse valide :
+            → (None, None)
 
-        On ne déclare JAMAIS "ADB actif" si adb ne répond pas réellement.
+        Règle d'or : On ne déclare JAMAIS "ADB actif" si ADB ne répond pas réellement.
         """
-        if not self._adb_bin:
+        try:
+            output = self._execute_adb_devices()
+            if not output:
+                return None, None
+
+            lines = [line.strip() for line in output.splitlines() if line.strip()]
+            header_found = False
+
+            for line in lines:
+                # Ignorer les messages de démarrage daemon
+                if line.startswith("*") or "daemon" in line.lower():
+                    continue
+
+                if "list of devices attached" in line.lower():
+                    header_found = True
+                    continue
+
+                if not header_found and "attached" not in line.lower():
+                    continue
+
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+
+                serial = parts[0]
+                state = parts[1].lower()
+
+                # Extraction d'attributs supplémentaires si présents (ex: model)
+                product_name = ""
+                for part in parts[2:]:
+                    if part.startswith("model:"):
+                        product_name = part.split(":", 1)[1].replace("_", " ")
+
+                if state in ("device", "recovery", "sideload"):
+                    # ── ADB actif et confirmé (débogage USB autorisé) ──────
+                    desc = f"Smartphone Android ({product_name})" if product_name else f"Appareil Android ({serial})"
+                    return ConnectedDevice(
+                        mode=DeviceMode.ADB,
+                        identifier=f"ADB:{serial}",
+                        port=None,
+                        serial_number=serial,
+                        description=desc,
+                        protocol=f"ADB Interface ({state})",
+                        details={
+                            "serial": serial,
+                            "adb_state": state,
+                            "product_name": product_name or "Smartphone Android"
+                        }
+                    ), None
+
+                elif state in ("unauthorized", "offline", "authorizing"):
+                    # ── USB branché, débogage non autorisé / désactivé ──────
+                    # → Traité comme USB Normal (🟡), jamais comme ADB actif
+                    desc = f"Appareil Android ({serial}) — Débogage non autorisé"
+                    return None, ConnectedDevice(
+                        mode=DeviceMode.USB_NORMAL,
+                        identifier=f"USB:{serial}",
+                        port=None,
+                        serial_number=serial,
+                        description=desc,
+                        protocol="USB Standard (débogage non autorisé)",
+                        details={
+                            "serial": serial,
+                            "adb_state": state,
+                            "product_name": product_name
+                        }
+                    )
+
             return None, None
-
-        cmd = [self._adb_bin, "devices"]
-        output = self._run_command_silent(cmd, timeout=0.8)
-        if not output:
+        except Exception:
             return None, None
-
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
-        for line in lines[1:]:  # Ignorer l'en-tête 'List of devices attached'
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            serial = parts[0]
-            state = parts[1].lower()
-
-            if state in ("device", "recovery"):
-                # ── ADB actif et confirmé (débogage USB autorisé) ──────
-                return ConnectedDevice(
-                    mode=DeviceMode.ADB,
-                    identifier=f"ADB:{serial}",
-                    port=None,
-                    serial_number=serial,
-                    description=f"Appareil Android — Débogage ADB actif ({serial})",
-                    protocol=f"ADB Interface ({state})",
-                    details={"serial": serial, "adb_state": state}
-                ), None
-
-            elif state == "unauthorized":
-                # ── USB branché, débogage non autorisé / désactivé ──────
-                # → Traité comme USB Normal (🟡), jamais comme ADB actif
-                return None, ConnectedDevice(
-                    mode=DeviceMode.USB_NORMAL,
-                    identifier=f"USB:{serial}",
-                    port=None,
-                    serial_number=serial,
-                    description=f"Appareil Android branché — ADB non autorisé ({serial})",
-                    protocol="USB Standard (débogage non autorisé)",
-                    details={"serial": serial, "adb_state": "unauthorized"}
-                )
-
-        return None, None
 
     def _scan_adb(self) -> Optional[ConnectedDevice]:
         """

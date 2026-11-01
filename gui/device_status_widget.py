@@ -83,7 +83,7 @@ class DeviceStatusBanner(QFrame):
     @pyqtSlot(str, str, str, str)
     def update_status(self, mode_str: str, title: str, subtitle: str, color: str):
         is_none = (mode_str == "NONE")
-        is_warning = (mode_str == "USB_NORMAL")
+        is_warning = (mode_str in ("USB_NORMAL", "NORMAL"))
 
         if is_none:
             self._state = "NONE"
@@ -98,8 +98,9 @@ class DeviceStatusBanner(QFrame):
         elif is_warning:
             self._state = "WARNING"
             self._blink_timer.stop()
-            self.lbl_status.setText("🟡 Connecté : Appareil branché [Mode Normal / Non sécurisé]")
-            self.lbl_detail.setText("— Débogage USB inactif. Éteignez pour passer en mode BROM.")
+            display_title = title if title.startswith("🟡") else f"🟡 {title}"
+            self.lbl_status.setText(display_title)
+            self.lbl_detail.setText(f"— {subtitle or 'Débogage USB inactif. Éteignez pour passer en mode BROM.'}")
             self.lbl_pill.setText("NORMAL")
             self.lbl_pill.setStyleSheet("background-color: #2d2610; color: #f59e0b; border: 1px solid #5a4b18; border-radius: 4px; padding: 2px 10px;")
             self._apply_style_warning()
@@ -107,9 +108,17 @@ class DeviceStatusBanner(QFrame):
         else:
             self._state = "CONNECTED"
             self._blink_timer.stop()
-            self.lbl_status.setText(f"🟢 Connecté : Périphérique [Mode {mode_str}]")
+            display_title = title if title.startswith("🟢") else f"🟢 {title}"
+            self.lbl_status.setText(display_title)
             self.lbl_detail.setText(f"— {subtitle or 'Liaison prête'}")
-            self.lbl_pill.setText(f"{mode_str}")
+            pill_text = mode_str
+            if mode_str == "ADB":
+                pill_text = "ADB ACTIVE"
+            elif mode_str == "BROM":
+                pill_text = "BROM / VCOM"
+            elif mode_str == "FASTBOOT":
+                pill_text = "FASTBOOT"
+            self.lbl_pill.setText(pill_text)
             self.lbl_pill.setStyleSheet("background-color: #0d2818; color: #10b981; border: 1px solid #1e5a35; border-radius: 4px; padding: 2px 10px;")
             self._apply_style_connected()
 

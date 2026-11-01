@@ -59,7 +59,6 @@ class MainWindow(QMainWindow):
         self.detector.device_detected.connect(self._on_device_detected)
         self.detector.device_lost.connect(self._on_device_lost)
         self.detector.status_updated.connect(self._on_status_updated)
-        self.detector.status_updated.connect(self.status_banner.update_status)
         self.detector.log_message.connect(self._append_log)
 
         # Message d'accueil
@@ -231,45 +230,30 @@ class MainWindow(QMainWindow):
         self.action_tabs.update_selected_model(model_data)
 
     def _on_rescan_clicked(self):
-        self._append_log("[+] Analyse immédiate des ports USB/Fastboot déclenchée...", "info")
-        self.detector.scan_now()
+        self._append_log("[+] Analyse immédiate des ports USB/ADB/Fastboot déclenchée...", "info")
+        dev = self.detector.scan_now(force_refresh=True)
+        if dev:
+            self._append_log(f"[✓] Analyse terminée : {dev.badge_title} ({dev.identifier})", "success")
+        else:
+            self._append_log("[i] Analyse terminée : Aucun appareil détecté.", "info")
 
     def _on_status_updated(self, mode_str: str, title: str, subtitle: str, color: str):
-        pass
+        self.status_banner.update_status(mode_str, title, subtitle, color)
 
     # ------------------------------------------------------------------
     # Détection USB en temps réel
     # ------------------------------------------------------------------
     def _on_device_detected(self, device: ConnectedDevice):
         self.mtk_comm.set_device(device)
-
-        model_name = device.description or "Périphérique MediaTek"
-        if device.details.get("product_name"):
-            model_name = device.details["product_name"]
-
-        loc = device.port or device.serial_number or device.identifier
-        self.status_banner.set_device_info(
-            model_name=model_name,
-            mode_name=device.mode_display,
-            port_name=loc
-        )
-
         self.conn_manager.update_connection_state(device)
-        self.status_label.setText(f"Appareil connecté : {device.mode.value} ({loc})")
+        loc = device.port or device.serial_number or device.identifier
+        self.status_label.setText(f"{device.status_emoji} {device.badge_title} ({loc})")
         self.status_label.setStyleSheet(f"color: {device.color}; font-weight: bold;")
 
     def _on_device_lost(self, device: ConnectedDevice):
         self.mtk_comm.disconnect()
-
-        self.status_banner.update_status(
-            "NONE",
-            "🔴 Aucun appareil connecté",
-            "Surveillance continue active (BROM MediaTek, Fastboot, ADB)...",
-            COLOR_DANGER
-        )
-
         self.conn_manager.update_connection_state(None)
-        self.status_label.setText("Aucun appareil connecté")
+        self.status_label.setText("🔴 Aucun appareil connecté")
         self.status_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
 
     # ------------------------------------------------------------------

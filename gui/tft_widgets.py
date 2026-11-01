@@ -806,10 +806,10 @@ class ConnectionManagerPanel(QFrame):
                 self.row_brom["val_lbl"].setStyleSheet(f"color: {COLOR_DANGER};")
                 self.row_fastboot["val_lbl"].setText("🔴 Déconnecté")
                 self.row_fastboot["val_lbl"].setStyleSheet(f"color: {COLOR_DANGER};")
-                self.row_adb["val_lbl"].setText("🟢 Débogage Actif")
+                self.row_adb["val_lbl"].setText(f"🟢 Actif ({device.serial_number or 'USB'})")
                 self.row_adb["val_lbl"].setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: bold;")
 
-            elif device.mode == DeviceMode.USB_NORMAL:
+            elif device.mode in (DeviceMode.USB_NORMAL, DeviceMode.NORMAL):
                 self.row_brom["val_lbl"].setText("🔴 Déconnecté")
                 self.row_fastboot["val_lbl"].setText("🔴 Déconnecté")
                 self.row_adb["val_lbl"].setText("🟡 Non autorisé")
