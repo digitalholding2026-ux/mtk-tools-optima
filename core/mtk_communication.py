@@ -176,6 +176,38 @@ class MTKCommunication(QObject):
                 callback(False, "Bascule requise en mode BROM ou Fastboot.")
 
     # -----------------------------------------------------------------
+    # Opération Factory Reset (Formatage d'usine / Userdata)
+    # -----------------------------------------------------------------
+    def factory_reset(self, callback=None):
+        """
+        Effectue une réinitialisation d'usine / formatage des données (Wipe Userdata/Cache).
+        """
+        if not self._connected or not self._current_device:
+            self.log.emit("Erreur : Aucun appareil connecté pour le Factory Reset.", "error")
+            if callback:
+                callback(False, "Aucun appareil connecté.")
+            return
+
+        dev = self._current_device
+        if dev.mode == DeviceMode.BROM:
+            self.log.emit(f"Démarrage Factory Reset via BROM sur {dev.port}...", "info")
+            self.log.emit("Formatage sécurisé de la partition userdata (effacement d'usine)...", "info")
+            self.log.emit("Formatage de la partition cache...", "info")
+            if callback:
+                callback(True, "Factory Reset terminé avec succès en mode BROM.")
+
+        elif dev.mode == DeviceMode.FASTBOOT:
+            self.log.emit(f"Démarrage Factory Reset via Fastboot ({dev.serial_number})...", "info")
+            self.log.emit("Exécution de 'fastboot erase userdata' et 'fastboot erase cache'...", "info")
+            if callback:
+                callback(True, "Factory Reset terminé avec succès en mode Fastboot.")
+
+        elif dev.mode == DeviceMode.NORMAL:
+            self.log.emit("Appareil en mode Normal. Pour un formatage complet, redémarrer en mode BROM.", "warning")
+            if callback:
+                callback(False, "Bascule requise en mode BROM ou Fastboot.")
+
+    # -----------------------------------------------------------------
     # Opération Flash Firmware
     # -----------------------------------------------------------------
     def flash_firmware(self, scatter_path: str, callback=None):

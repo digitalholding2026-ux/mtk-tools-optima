@@ -94,35 +94,35 @@ class DashboardTab(QWidget):
         layout.addWidget(status_group)
 
         # --- Actions rapides ---
-        actions_group = QGroupBox("Actions rapides selon le mode détecté")
+        actions_group = QGroupBox("Actions rapides avec Assistant Just-In-Time")
         actions_group.setObjectName("actionsGroup")
         actions_layout = QGridLayout(actions_group)
         actions_layout.setSpacing(15)
 
-        self.btn_frp = QPushButton("🔒 Accéder au déblocage FRP")
+        self.btn_frp = QPushButton("🔒 Effacer FRP (Assistant JIT)")
         self.btn_frp.setFixedHeight(50)
         self.btn_frp.setCursor(Qt.PointingHandCursor)
-        self.btn_frp.clicked.connect(self._go_to_frp)
+        self.btn_frp.clicked.connect(self._launch_frp_action)
 
-        self.btn_flash = QPushButton("⚡ Accéder à l'outil Flash")
+        self.btn_reset = QPushButton("🧹 Factory Reset (Assistant JIT)")
+        self.btn_reset.setFixedHeight(50)
+        self.btn_reset.setCursor(Qt.PointingHandCursor)
+        self.btn_reset.clicked.connect(self._launch_factory_reset_action)
+
+        self.btn_flash = QPushButton("⚡ Outil Flash (Scatter MTK)")
         self.btn_flash.setFixedHeight(50)
         self.btn_flash.setCursor(Qt.PointingHandCursor)
         self.btn_flash.clicked.connect(self._go_to_flash)
 
-        self.btn_info = QPushButton("📋 Voir les informations détaillées")
+        self.btn_info = QPushButton("📋 Lire Infos Appareil")
         self.btn_info.setFixedHeight(50)
         self.btn_info.setCursor(Qt.PointingHandCursor)
-        self.btn_info.clicked.connect(self._go_to_info)
-
-        self.btn_rescan = QPushButton("🔄 Forcer un scan immédiat")
-        self.btn_rescan.setFixedHeight(50)
-        self.btn_rescan.setCursor(Qt.PointingHandCursor)
-        self.btn_rescan.clicked.connect(self._force_scan)
+        self.btn_info.clicked.connect(self._launch_read_info_action)
 
         actions_layout.addWidget(self.btn_frp, 0, 0)
-        actions_layout.addWidget(self.btn_flash, 0, 1)
-        actions_layout.addWidget(self.btn_info, 1, 0)
-        actions_layout.addWidget(self.btn_rescan, 1, 1)
+        actions_layout.addWidget(self.btn_reset, 0, 1)
+        actions_layout.addWidget(self.btn_flash, 1, 0)
+        actions_layout.addWidget(self.btn_info, 1, 1)
 
         layout.addWidget(actions_group)
         layout.addStretch()
@@ -246,22 +246,31 @@ class DashboardTab(QWidget):
         self.lbl_advice_value.setText("Connectez l'appareil éteint avec Volume- pour le mode BROM, ou allumez en mode Fastboot.")
         self.lbl_advice_value.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-style: italic;")
 
-    def _force_scan(self):
-        """Déclenche une analyse immédiate sans attendre l'intervalle."""
-        if hasattr(self.detector, "scan_now"):
-            self.detector.scan_now()
-
-    def _go_to_frp(self):
+    def _launch_frp_action(self):
+        """Bascule sur l'onglet FRP et déclenche l'assistant de déblocage FRP."""
         main_win = self.window()
         if hasattr(main_win, "tabs"):
             main_win.tabs.setCurrentIndex(1)
+        if hasattr(main_win, "frp_tab"):
+            main_win.frp_tab._start_frp_reset()
+
+    def _launch_factory_reset_action(self):
+        """Bascule sur l'onglet FRP et déclenche l'assistant de Factory Reset."""
+        main_win = self.window()
+        if hasattr(main_win, "tabs"):
+            main_win.tabs.setCurrentIndex(1)
+        if hasattr(main_win, "frp_tab"):
+            main_win.frp_tab._start_factory_reset()
+
+    def _launch_read_info_action(self):
+        """Bascule sur l'onglet Informations et déclenche la lecture avec assistant."""
+        main_win = self.window()
+        if hasattr(main_win, "tabs"):
+            main_win.tabs.setCurrentIndex(3)
+        if hasattr(main_win, "device_info_tab"):
+            main_win.device_info_tab._on_read_info_clicked()
 
     def _go_to_flash(self):
         main_win = self.window()
         if hasattr(main_win, "tabs"):
             main_win.tabs.setCurrentIndex(2)
-
-    def _go_to_info(self):
-        main_win = self.window()
-        if hasattr(main_win, "tabs"):
-            main_win.tabs.setCurrentIndex(3)

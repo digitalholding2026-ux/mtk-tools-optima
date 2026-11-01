@@ -188,9 +188,8 @@ class FlashTab(QWidget):
         self._update_flash_button_state()
 
     def _update_flash_button_state(self):
-        # Le flash scatter complet requiert un appareil connecté (préférablement BROM) et un fichier
-        is_ready = self.device_connected and (self.firmware_path is not None)
-        self.btn_flash.setEnabled(is_ready)
+        # Le bouton de flash est actif dès qu'un firmware est sélectionné (assistant JIT à l'appui)
+        self.btn_flash.setEnabled(self.firmware_path is not None)
 
     # ------------------------------------------------------------------
     # Actions
@@ -208,12 +207,24 @@ class FlashTab(QWidget):
             self._update_flash_button_state()
 
     def _start_flash(self):
-        if not self.device_connected or not self.current_device:
-            QMessageBox.warning(self, "Appareil manquant", "Veuillez connecter un appareil MediaTek d'abord.")
-            return
         if not self.firmware_path:
-            QMessageBox.warning(self, "Fichier manquant", "Veuillez sélectionner un fichier de firmware.")
+            QMessageBox.warning(self, "Fichier manquant", "Veuillez d'abord sélectionner un fichier de firmware.")
             return
+
+        main_win = self.window()
+        if hasattr(main_win, "run_action_with_assistant"):
+            main_win.run_action_with_assistant(
+                action_name="Flash Firmware",
+                operation_func=self._execute_flash_with_device,
+                target_modes=[DeviceMode.BROM]
+            )
+        else:
+            self._execute_flash_with_device(self.current_device)
+
+    def _execute_flash_with_device(self, device: ConnectedDevice):
+        self.device_connected = True
+        self.current_device = device
+        self.current_port = device.port or device.identifier
 
         reply = QMessageBox.question(
             self, "Confirmer le flash",

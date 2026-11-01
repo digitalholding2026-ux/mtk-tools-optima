@@ -6,6 +6,7 @@ Redirige vers la nouvelle implémentation core.detector.DeviceDetector.
 
 from core.detector import (
     DeviceDetector,
+    JITConnectionWorker,
     DeviceMode,
     ConnectedDevice,
     MTK_VENDORS,
@@ -19,6 +20,7 @@ COMDetector = DeviceDetector
 
 __all__ = [
     "DeviceDetector",
+    "JITConnectionWorker",
     "COMDetector",
     "DeviceMode",
     "ConnectedDevice",

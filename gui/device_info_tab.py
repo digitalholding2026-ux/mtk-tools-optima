@@ -79,11 +79,11 @@ class DeviceInfoTab(QWidget):
 
         # --- Boutons d'action ---
         btn_layout = QHBoxLayout()
-        btn_refresh = QPushButton("Actualiser les informations")
-        btn_refresh.setFixedHeight(36)
-        btn_refresh.setCursor(Qt.PointingHandCursor)
-        btn_refresh.clicked.connect(self._refresh_info)
-        btn_layout.addWidget(btn_refresh)
+        self.btn_refresh = QPushButton("📋 Lire les informations appareil")
+        self.btn_refresh.setFixedHeight(38)
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh.clicked.connect(self._on_read_info_clicked)
+        btn_layout.addWidget(self.btn_refresh)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -173,6 +173,25 @@ class DeviceInfoTab(QWidget):
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
+    def _on_read_info_clicked(self):
+        """Déclenche la lecture des infos via l'assistant de connexion si nécessaire."""
+        main_win = self.window()
+        if hasattr(main_win, "run_action_with_assistant"):
+            main_win.run_action_with_assistant(
+                action_name="Lire Infos",
+                operation_func=self._execute_read_info_with_device,
+                target_modes=[DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.NORMAL]
+            )
+        else:
+            self._refresh_info()
+
+    def _execute_read_info_with_device(self, device: ConnectedDevice):
+        """Appelé lorsque l'appareil est détecté par l'assistant."""
+        self.device_connected = True
+        self.current_device = device
+        self.current_port = device.port or device.identifier
+        self._refresh_info()
+
     def _refresh_info(self):
         if not self.device_connected or not self.current_device:
             return

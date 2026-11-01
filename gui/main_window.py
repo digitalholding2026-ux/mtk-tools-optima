@@ -5,6 +5,7 @@ Intègre la détection automatique et en temps réel des périphériques USB/COM
 (Modes BROM/BootROM, Fastboot, Normal/AT).
 """
 
+from typing import Optional, List, Callable
 from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QMessageBox, QFrame
@@ -391,6 +392,35 @@ class MainWindow(QMainWindow):
         self.device_info_tab.on_device_disconnected()
         self.frp_tab.on_device_disconnected()
         self.flash_tab.on_device_disconnected()
+
+    def run_action_with_assistant(
+        self,
+        action_name: str,
+        operation_func: Callable[[ConnectedDevice], None],
+        target_modes: Optional[List[DeviceMode]] = None,
+        custom_instructions: Optional[str] = None,
+        timeout: int = 60
+    ) -> bool:
+        """
+        Déclenche l'assistant visuel d'instructions et l'écoute active temporaire (JIT).
+        Ouvre la popup, attend le branchement avec animation et décompte, ferme la popup
+        dès détection, consigne le log propre et exécute operation_func.
+        """
+        from gui.connection_assistant import execute_with_assistant
+
+        def wrapped_operation(device: ConnectedDevice):
+            self._on_device_detected(device)
+            operation_func(device)
+
+        return execute_with_assistant(
+            parent=self,
+            action_name=action_name,
+            operation_func=wrapped_operation,
+            target_modes=target_modes,
+            custom_instructions=custom_instructions,
+            timeout=timeout,
+            log_callback=self._append_log
+        )
 
     def _append_log(self, message: str, level: str = "info"):
         """Ajoute un message horodaté au panneau de logs."""

@@ -599,3 +599,72 @@ class DeviceDetector(QThread):
     def is_device_connected(self) -> bool:
         """Indique si un appareil est actuellement présent."""
         return self._current_device is not None
+
+
+# =====================================================================
+# Écoute active temporaire (Just-In-Time / Assistant d'action)
+# =====================================================================
+
+class JITConnectionWorker(QThread):
+    """
+    Worker d'écoute active temporaire (Just-In-Time) pour l'assistant d'instructions.
+    Surveille à haute fréquence (250ms) l'apparition d'un appareil dès l'ouverture
+    de la boîte de dialogue, et s'arrête immédiatement dès détection ou timeout.
+    """
+    device_found = pyqtSignal(object)       # ConnectedDevice
+    timeout_reached = pyqtSignal()          # Emis à l'expiration du délai max
+    tick = pyqtSignal(int)                  # Secondes restantes (60..0)
+    cancelled = pyqtSignal()                # Emis en cas d'annulation
+
+    def __init__(self, target_modes: Optional[List[DeviceMode]] = None,
+                 timeout_seconds: int = 60, poll_interval: float = 0.25, parent=None):
+        super().__init__(parent)
+        self.target_modes = target_modes or [DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.NORMAL]
+        self.timeout_seconds = timeout_seconds
+        self.poll_interval = poll_interval
+        self._running = False
+        self._helper = DeviceDetector(interval=self.poll_interval)
+
+    def stop(self):
+        """Arrête immédiatement l'écoute active."""
+        self._running = False
+        self.wait(1000)
+
+    def run(self):
+        self._running = True
+        start_time = time.time()
+        last_remaining = self.timeout_seconds
+        self.tick.emit(last_remaining)
+
+        while self._running:
+            # Calcul du temps restant
+            elapsed = time.time() - start_time
+            remaining = max(0, int(self.timeout_seconds - elapsed))
+
+            if remaining != last_remaining:
+                last_remaining = remaining
+                self.tick.emit(remaining)
+
+            if elapsed >= self.timeout_seconds:
+                self.timeout_reached.emit()
+                break
+
+            # Scan haute fréquence
+            try:
+                candidates = self._helper._scan_all_candidates()
+                if candidates:
+                    valid = [d for d in candidates if d.mode in self.target_modes]
+                    if valid:
+                        # Appareil détecté !
+                        self.device_found.emit(valid[0])
+                        break
+            except Exception:
+                pass
+
+            # Micro-sommeil pour arrêt instantané dès le clic sur Annuler
+            steps = int(max(1, self.poll_interval * 20))
+            for _ in range(steps):
+                if not self._running:
+                    break
+                self.msleep(50)
+
