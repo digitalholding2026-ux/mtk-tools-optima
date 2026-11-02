@@ -117,12 +117,11 @@ def _get_libusb_backend():
     except Exception as exc:
         logger.debug(f"[USB-SCANNER] Délégation init_env a échoué ({exc}), passage au secours local")
 
-    # ── 1. DLL embarquée dans tools/ ou bin/ ───────────────────────────────────
+    # ── 1. DLL embarquée dans bin/ ──────────────────────────────────────────
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for candidate in [
         os.path.join(project_root, "bin", "x64", "libusb-1.0.dll"),
         os.path.join(project_root, "bin", "libusb-1.0.dll"),
-        os.path.join(project_root, "tools", "libusb-1.0.dll"),
     ]:
         if os.path.isfile(candidate):
             try:

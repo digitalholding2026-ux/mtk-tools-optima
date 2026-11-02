@@ -115,9 +115,6 @@ def find_fastboot() -> Optional[str]:
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidates = [
-        os.path.join(base_dir, "platform-tools", "fastboot.exe"),
-        os.path.join(base_dir, "tools", "fastboot.exe"),
-        os.path.join(base_dir, "assets", "bin", "fastboot.exe"),
         os.path.join(base_dir, "bin", "fastboot.exe"),
     ]
     local_app_data = os.environ.get("LOCALAPPDATA", "")
@@ -184,9 +181,6 @@ def find_adb() -> Optional[str]:
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidates = [
-        os.path.join(base_dir, "platform-tools", "adb.exe"),
-        os.path.join(base_dir, "tools", "adb.exe"),
-        os.path.join(base_dir, "assets", "bin", "adb.exe"),
         os.path.join(base_dir, "bin", "adb.exe"),
     ]
     local_app_data = os.environ.get("LOCALAPPDATA", "")

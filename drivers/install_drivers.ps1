@@ -29,7 +29,7 @@ $infFiles = Get-ChildItem -Path $driversDir -Filter "*.inf" -Recurse
 
 if ($infFiles.Count -eq 0) {
     Write-Host "[AVERTISSEMENT] Aucun package .inf trouvé dans $driversDir !" -ForegroundColor Yellow
-    Write-Host "Déposez vos pilotes .inf dans les dossiers vcom/, libusb_filter/ et adb_fastboot/." -ForegroundColor Yellow
+    Write-Host "Déposez vos pilotes .inf dans les dossiers mtk/, libusb/ et adb_fastboot/." -ForegroundColor Yellow
     exit 0
 }
 

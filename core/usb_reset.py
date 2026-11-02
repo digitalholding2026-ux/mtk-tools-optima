@@ -271,8 +271,6 @@ def _find_adb_executable() -> Optional[str]:
 
     candidate_dirs = [
         os.path.join(project_root, "bin"),
-        os.path.join(project_root, "tools"),
-        os.path.join(project_root, "platform-tools"),
     ]
 
     # Vérification dans les chemins candidats du projet
@@ -319,7 +317,7 @@ def restart_adb_server(
     adb = adb_bin or _find_adb_executable()
     if not adb:
         _log(
-            "Exécutable ADB introuvable (tools/adb.exe, platform-tools/, PATH, SDK).",
+            "Exécutable ADB introuvable (bin/adb.exe, PATH, SDK).",
             level="WARNING",
             callback=log_callback,
         )

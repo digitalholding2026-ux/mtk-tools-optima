@@ -1,4 +1,18 @@
-.aider*
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build outputs
+build/
+dist/
+*.spec.bak
+
+# Aider chat artifacts
+.aider*
+
+# Environment and temp
+*.tmp
+*.log
+.vscode/
+.idea/

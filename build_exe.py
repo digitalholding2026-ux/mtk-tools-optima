@@ -31,15 +31,17 @@ def check_and_create_icon():
             d.rounded_rectangle(
                 [1, 1, w - 2, h - 2],
                 radius=int(w * 0.22),
-                fill=(18, 110, 240, 255),
-                outline=(0, 200, 255, 255),
-                width=max(1, int(w * 0.04))
+                fill=(15, 17, 26, 255),
+                outline=(255, 107, 0, 255),
+                width=max(1, int(w * 0.05))
             )
             cx, cy = w // 2, h // 2
-            r = int(w * 0.28)
-            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 255, 255, 255))
-            r2 = int(w * 0.16)
-            d.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], fill=(18, 110, 240, 255))
+            r_ext = int(w * 0.32)
+            d.ellipse([cx - r_ext, cy - r_ext, cx + r_ext, cy + r_ext], fill=(255, 107, 0, 255))
+            r_mid = int(w * 0.22)
+            d.ellipse([cx - r_mid, cy - r_mid, cx + r_mid, cy + r_mid], fill=(15, 17, 26, 255))
+            r_int = int(w * 0.10)
+            d.ellipse([cx - r_int, cy - r_int, cx + r_int, cy + r_int], fill=(255, 255, 255, 255))
             imgs.append(im)
         os.makedirs(os.path.dirname(icon_path), exist_ok=True)
         imgs[0].save(icon_path, format='ICO', sizes=sizes, append_images=imgs[1:])

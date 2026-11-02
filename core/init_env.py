@@ -75,14 +75,11 @@ def get_search_roots() -> List[str]:
 
 
 def get_bin_dir() -> str:
-    """Retourne le chemin absolu du dossier des binaires embarqués (bin/ prioritaire, tools/ fallback)."""
+    """Retourne le chemin absolu du dossier des binaires embarqués (bin/ canonique)."""
     for root in get_search_roots():
         bin_path = os.path.join(root, "bin")
         if os.path.isdir(bin_path):
             return bin_path
-        tools_path = os.path.join(root, "tools")
-        if os.path.isdir(tools_path):
-            return tools_path
     return os.path.join(get_project_root(), "bin")
 
 
@@ -115,8 +112,7 @@ def resolve_libusb_dll_path() -> Optional[str]:
     Ordre de recherche modulaire sur toutes les racines disponibles (bundle + install) :
       1. bin/x64/libusb-1.0.dll ou bin/x86/libusb-1.0.dll selon le runtime
       2. bin/libusb-1.0.dll (racine bin)
-      3. tools/libusb-1.0.dll (compatibilité ascendante)
-      4. Racine directe de l'exécutable (à côté de OptimaMTKTool.exe)
+      3. Racine directe de l'exécutable (à côté de OptimaMTKTool.exe)
     """
     arch_subfolder = "x64" if is_64bit_python() else "x86"
 
@@ -125,8 +121,6 @@ def resolve_libusb_dll_path() -> Optional[str]:
         candidates.extend([
             os.path.join(root, "bin", arch_subfolder, "libusb-1.0.dll"),
             os.path.join(root, "bin", "libusb-1.0.dll"),
-            os.path.join(root, "tools", arch_subfolder, "libusb-1.0.dll"),
-            os.path.join(root, "tools", "libusb-1.0.dll"),
             os.path.join(root, "libusb-1.0.dll"),
         ])
 
@@ -161,8 +155,6 @@ def configure_windows_dll_directories():
             root,
             os.path.join(root, "bin"),
             os.path.join(root, "bin", arch_subfolder),
-            os.path.join(root, "tools"),
-            os.path.join(root, "tools", arch_subfolder),
         ])
 
     # os.add_dll_directory disponible depuis Python 3.8
@@ -250,16 +242,14 @@ def get_libusb_backend():
 
 
 def get_adb_path() -> Optional[str]:
-    """Retourne le chemin de l'exécutable adb.exe (bin/ prioritaire, puis tools/, puis PATH)."""
+    """Retourne le chemin de l'exécutable adb.exe (bin/ prioritaire, puis PATH)."""
     import shutil
     candidates = []
     for root in get_search_roots():
         candidates.extend([
             os.path.join(root, "bin", "adb.exe"),
-            os.path.join(root, "tools", "adb.exe"),
             os.path.join(root, "adb.exe"),
             os.path.join(root, "bin", "adb"),
-            os.path.join(root, "tools", "adb"),
         ])
 
     for c in candidates:
@@ -273,16 +263,14 @@ def get_adb_path() -> Optional[str]:
 
 
 def get_fastboot_path() -> Optional[str]:
-    """Retourne le chemin de l'exécutable fastboot.exe (bin/ prioritaire, puis tools/, puis PATH)."""
+    """Retourne le chemin de l'exécutable fastboot.exe (bin/ prioritaire, puis PATH)."""
     import shutil
     candidates = []
     for root in get_search_roots():
         candidates.extend([
             os.path.join(root, "bin", "fastboot.exe"),
-            os.path.join(root, "tools", "fastboot.exe"),
             os.path.join(root, "fastboot.exe"),
             os.path.join(root, "bin", "fastboot"),
-            os.path.join(root, "tools", "fastboot"),
         ])
 
     for c in candidates:

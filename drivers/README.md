@@ -11,10 +11,10 @@ drivers/
 ├── install_drivers.bat      # Lanceur rapide avec élévation Administrateur automatique (UAC)
 ├── install_drivers.ps1      # Script PowerShell d'intégration silencieuse via PnPUtil
 │
-├── vcom/                    # Pilotes MediaTek Port COM Virtuel
+├── mtk/                     # Pilotes MediaTek Port COM Virtuel (VCOM / Preloader / BROM)
 │   └── cdc-acm.inf          # USB\VID_0E8D&PID_2000 (Preloader), PID_2001 (DA), PID_0003 (BROM)
 │
-├── libusb_filter/           # Filtre WinUSB / LibUSB pour détection ultra-rapide (<3s)
+├── libusb/                  # Filtre WinUSB / LibUSB pour détection ultra-rapide (<3s)
 │   └── mtk_brom_filter.inf  # Accès direct PyUSB / LibUSB au BootROM matériel sans port COM
 │
 └── adb_fastboot/            # Pilotes Android officiels

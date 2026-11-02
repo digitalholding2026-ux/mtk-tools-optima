@@ -255,10 +255,6 @@ def get_adb_path() -> str:
     # Pointe vers bin/adb.exe
     adb_path = os.path.join(base_path, "bin", "adb.exe")
     if not os.path.exists(adb_path):
-        # Repli de secours sur tools/ ou adb global
-        fallback_tools = os.path.join(base_path, "tools", "adb.exe")
-        if os.path.exists(fallback_tools):
-            return os.path.abspath(fallback_tools)
         adb_path = "adb"  # Fallback global si introuvable
     else:
         adb_path = os.path.abspath(adb_path)
@@ -385,11 +381,8 @@ class DeviceDetector(QThread):
 
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         candidates = [
-            os.path.join(base_dir, "tools", "fastboot.exe"),
-            os.path.join(base_dir, "tools", "fastboot"),
-            os.path.join(base_dir, "platform-tools", "fastboot.exe"),
-            os.path.join(base_dir, "assets", "bin", "fastboot.exe"),
             os.path.join(base_dir, "bin", "fastboot.exe"),
+            os.path.join(base_dir, "assets", "bin", "fastboot.exe"),
         ]
         for path in candidates:
             if os.path.isfile(path) and (sys.platform != "win32" or os.access(path, os.X_OK)):

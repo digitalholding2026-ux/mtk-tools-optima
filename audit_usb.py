@@ -72,8 +72,6 @@ def audit_adb_server():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(base_dir, "bin", "adb.exe"),
-        os.path.join(base_dir, "tools", "adb.exe"),
-        os.path.join(base_dir, "platform-tools", "adb.exe"),
     ]
     for c in candidates:
         if os.path.isfile(c):
