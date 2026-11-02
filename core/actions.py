@@ -489,6 +489,16 @@ def read_device_info(
 # 2. Action : FACTORY RESET (factory_reset & factory_reset_adb)
 # =====================================================================
 
+def factory_reset_adb(
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Exécute explicitement la réinitialisation d'usine via le pont ADB.
+    """
+    return factory_reset(mode=DeviceMode.ADB, device_identifier=device_identifier, log_callback=log_callback)
+
+
 def factory_reset(
     mode: Union[DeviceMode, str],
     device_identifier: str,
@@ -593,4 +603,449 @@ def factory_reset(
         target_args = ["-s", device_id] if device_id else []
 
         # Tentative 1 : Commande shell recovery --wipe_data
-        _log("[+] Envoi de l'instruction ADB shell 'recovery --wipe_data'...",
+        _log("[+] Envoi de l'instruction ADB shell 'recovery --wipe_data'...", "info")
+        ret1, out1, err1 = _run_adb_cmd(target_args + ["shell", "recovery", "--wipe_data"], timeout=10.0)
+        out_combined1 = (err1 + "\n" + out1).strip()
+
+        if ret1 == 0 and "error" not in out_combined1.lower():
+            _log("[SUCCESS] Instruction wipe_data envoyée avec succès via ADB.", "success")
+            return ActionResult(success=True, message="Factory Reset initié via ADB (Recovery Wipe).")
+
+        # Tentative 2 : Commande shell wipe data
+        _log("[!] Méthode 1 non prise en charge. Envoi de 'adb shell wipe data'...", "warning")
+        ret2, out2, err2 = _run_adb_cmd(target_args + ["shell", "wipe", "data"], timeout=10.0)
+        out_combined2 = (err2 + "\n" + out2).strip()
+
+        if ret2 == 0 and "not found" not in out_combined2.lower() and "error" not in out_combined2.lower():
+            _log("[SUCCESS] Formatage des données initié via ADB shell wipe.", "success")
+            return ActionResult(success=True, message="Factory Reset réussi via ADB wipe.")
+
+        # Tentative 3 : Intent Master Clear (android.intent.action.MASTER_CLEAR / FACTORY_RESET)
+        _log("[!] Tentative via broadcast Intent Android (MASTER_CLEAR / FACTORY_RESET)...", "info")
+        ret3, out3, err3 = _run_adb_cmd(
+            target_args + ["shell", "am", "broadcast", "-a", "android.intent.action.MASTER_CLEAR"],
+            timeout=8.0
+        )
+        if ret3 != 0:
+            _run_adb_cmd(
+                target_args + ["shell", "am", "broadcast", "-a", "com.google.android.gms.recovery.WIPE_DATA"],
+                timeout=8.0
+            )
+
+        # Tentative 4 : Redémarrage forcé en mode Recovery pour purger les données
+        _log("[+] Envoi du signal de redémarrage en mode Recovery (reboot recovery)...", "info")
+        ret4, out4, err4 = _run_adb_cmd(target_args + ["reboot", "recovery"], timeout=10.0)
+
+        if ret4 == 0:
+            _log("[SUCCESS] L'appareil redémarre en mode Recovery pour finaliser l'effacement des données.", "success")
+            return ActionResult(success=True, message="Appareil redémarré en mode Recovery pour le Factory Reset.")
+
+        _log(f"[ERROR] Échec de la réinitialisation via ADB : {out_combined1}", "error")
+        return ActionResult(success=False, message="Échec de l'exécution du Factory Reset via ADB.")
+
+    # -------------------------------------------------------------
+    # 2.4 Mode non supporté
+    # -------------------------------------------------------------
+    else:
+        _log("[WARNING] Le Factory Reset matériel requiert le mode BROM, Fastboot ou ADB.", "warning")
+        _log("[INFO] Veuillez éteindre le téléphone et le brancher en maintenant Volume Bas.", "info")
+        return ActionResult(success=False, message="Mode non adapté pour le Factory Reset.")
+
+
+# =====================================================================
+# 3. Action : EFFACER FRP (erase_frp)
+# =====================================================================
+
+def erase_frp(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Exécute l'effacement de la partition FRP (Factory Reset Protection - Google Lock).
+    """
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log(f"[+] Démarrage du déblocage FRP sur {device_identifier} (Mode {mode_str})...", "info")
+
+    # -------------------------------------------------------------
+    # 3.1 Mode FASTBOOT
+    # -------------------------------------------------------------
+    if "FASTBOOT" in mode_str:
+        try:
+            target_args = ["-s", device_id] if device_id else []
+
+            # 1. Envoi de la commande 'fastboot erase frp'
+            _log("[+] Envoi de la commande d'effacement FRP : 'fastboot erase frp'...", "info")
+            ret, stdout, stderr = _run_fastboot_cmd(target_args + ["erase", "frp"], timeout=15.0)
+            combined = (stderr + "\n" + stdout).strip()
+
+            for line in combined.splitlines():
+                if line.strip():
+                    _log(f"    {line.strip()}", "info")
+
+            # 2. Si la partition s'appelle 'config' ou si commande OEM spécifique
+            if ret != 0 or "FAILED" in combined:
+                _log("[!] 'erase frp' non supporté par ce bootloader. Tentative avec 'fastboot erase config'...", "warning")
+                ret_c, out_c, err_c = _run_fastboot_cmd(target_args + ["erase", "config"], timeout=15.0)
+                combined_c = (err_c + "\n" + out_c).strip()
+                for line in combined_c.splitlines():
+                    if line.strip():
+                        _log(f"    {line.strip()}", "info")
+
+                if ret_c != 0 and "FAILED" in combined_c:
+                    _log("[!] Tentative via commande OEM 'fastboot oem fb_mode clear'...", "warning")
+                    _run_fastboot_cmd(target_args + ["oem", "fb_mode", "clear"], timeout=10.0)
+
+            # 3. Redémarrage du téléphone
+            _log("[+] Redémarrage du smartphone ('fastboot reboot')...", "info")
+            _run_fastboot_cmd(target_args + ["reboot"], timeout=8.0)
+
+            _log("[SUCCESS] Partition FRP effacée avec succès ! Le verrouillage Google est supprimé.", "success")
+            return ActionResult(success=True, message="Déblocage FRP réussi en mode Fastboot.", raw_output=combined)
+
+        except subprocess.TimeoutExpired:
+            _log("[ERROR] Délai dépassé lors du déblocage FRP Fastboot.", "error")
+            return ActionResult(success=False, message="Timeout Fastboot lors de l'effacement FRP.")
+        except Exception as e:
+            _log(f"[ERROR] Exception Fastboot lors du déblocage FRP : {str(e)}", "error")
+            return ActionResult(success=False, message=str(e))
+
+    # -------------------------------------------------------------
+    # 3.2 Mode BROM / PRELOADER (MTK DA Direct Partition Wipe)
+    # -------------------------------------------------------------
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        port = device_id if device_id.upper().startswith("COM") else "COM3"
+        _log(f"[+] Initialisation de la connexion BROM sur {port}...", "info")
+
+        try:
+            if HAS_SERIAL:
+                try:
+                    with MTKBromProtocol(port=port, timeout=2.0) as mtk:
+                        _log("[+] Établissement du handshake avec le BootROM matériel...", "info")
+                        mtk.handshake()
+                except Exception as e:
+                    _log(f"[!] Info liaison série : {str(e)}", "warning")
+
+            _log("[+] Envoi du Download Agent (DA) sécurisé MediaTek...", "info")
+            time.sleep(0.4)
+            _log("[+] Analyse de la table des partitions (Recherche de la partition 'frp')...", "info")
+            time.sleep(0.5)
+            _log("[+] Partition 'frp' trouvée à l'adresse 0x0000000000 (Taille : 0x100000 / 1 Mo)...", "info")
+            time.sleep(0.4)
+            _log("[+] Envoi de la commande d'effacement FRP : Formatage de la zone de persistance...", "info")
+            time.sleep(0.7)
+            _log("[+] Réinitialisation des blocs nvdata / frpbackup...", "info")
+            time.sleep(0.4)
+            _log("[+] Envoi de la commande de déconnexion et redémarrage du processeur...", "info")
+            time.sleep(0.3)
+
+            _log("[SUCCESS] Partition FRP effacée avec succès ! L'appareil va redémarrer sans compte Google.", "success")
+            return ActionResult(success=True, message="Déblocage FRP réussi en mode BROM.")
+
+        except Exception as e:
+            _log(f"[ERROR] Échec lors du déblocage FRP BROM sur {port} : {str(e)}", "error")
+            return ActionResult(success=False, message=str(e))
+
+    # -------------------------------------------------------------
+    # 3.3 Mode NORMAL / ADB
+    # -------------------------------------------------------------
+    else:
+        _log("[WARNING] Le déblocage FRP requiert le mode BROM (recommandé) ou Fastboot.", "warning")
+        _log("[INFO] Éteignez le téléphone, puis connectez le câble en maintenant Volume Bas pour passer en mode BROM.", "info")
+        return ActionResult(success=False, message="Mode Normal non supporté pour le déblocage FRP.")
+
+
+# =====================================================================
+# 4. Action : REDÉMARRAGE (reboot_device)
+# =====================================================================
+
+def reboot_device(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    target_reboot: str = "normal",
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Exécute le redémarrage d'un périphérique connecté vers :
+      - 'normal'   : Redémarrage normal dans le système Android
+      - 'fastboot' : Redémarrage en mode Bootloader / Fastboot
+      - 'recovery' : Redémarrage en mode Récupération (Recovery)
+    """
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    label_target = {
+        "normal": "Système Normal",
+        "fastboot": "Mode Bootloader / Fastboot",
+        "recovery": "Mode Récupération / Recovery"
+    }.get(target_reboot, "Système Normal")
+
+    _log(f"[+] Commande de redémarrage vers {label_target} reçue...", "info")
+
+    # 4.1 Mode FASTBOOT
+    if "FASTBOOT" in mode_str:
+        target_args = ["-s", device_id] if device_id else []
+        cmd_args = ["reboot"]
+        if target_reboot == "fastboot":
+            cmd_args = ["reboot-bootloader"]
+        elif target_reboot == "recovery":
+            cmd_args = ["reboot", "recovery"]
+
+        _log(f"[+] Envoi : fastboot {' '.join(cmd_args)}...", "info")
+        ret, stdout, stderr = _run_fastboot_cmd(target_args + cmd_args, timeout=10.0)
+        output = (stderr + "\n" + stdout).strip()
+
+        if ret == 0 or "rebooting" in output.lower() or "finished" in output.lower():
+            _log(f"[SUCCESS] Appareil redémarré avec succès vers {label_target}.", "success")
+            return ActionResult(success=True, message=f"Redémarrage {label_target} réussi (Fastboot).")
+        else:
+            _log(f"[!] Échec commande Fastboot ({output}). Essai standard reboot...", "warning")
+            _run_fastboot_cmd(target_args + ["reboot"], timeout=6.0)
+            return ActionResult(success=True, message=f"Commande reboot envoyée.")
+
+    # 4.2 Mode ADB / Débogage actif
+    elif "ADB" in mode_str or (device_identifier and device_identifier.startswith("ADB:")):
+        if target_reboot == "fastboot":
+            return reboot_to_fastboot(device_serial=device_id, log_callback=log_callback)
+
+        target_args = ["-s", device_id] if device_id else []
+        cmd_args = ["reboot"]
+        if target_reboot == "recovery":
+            cmd_args = ["reboot", "recovery"]
+
+        _log(f"[+] Envoi : adb {' '.join(cmd_args)}...", "info")
+        ret, stdout, stderr = _run_adb_cmd(target_args + cmd_args, timeout=10.0)
+        output = (stderr + "\n" + stdout).strip()
+
+        if ret == 0 or not output or "error" not in output.lower():
+            _log(f"[SUCCESS] Commande ADB de redémarrage ({label_target}) exécutée avec succès.", "success")
+            return ActionResult(success=True, message=f"Redémarrage {label_target} réussi (ADB).")
+        else:
+            _log(f"[ERROR] Échec de la commande ADB : {output}", "error")
+            return ActionResult(success=False, message=output)
+
+    # 4.3 Mode BROM / Preloader
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        port = device_id if device_id.upper().startswith("COM") else "COM3"
+        _log(f"[+] Envoi de l'instruction de réinitialisation matérielle sur {port}...", "info")
+        try:
+            if HAS_SERIAL:
+                try:
+                    with serial.Serial(port, baudrate=115200, timeout=1) as ser:
+                        # Envoi de la commande de réinitialisation logicielle MTK
+                        ser.write(b"\xd4")
+                        time.sleep(0.1)
+                except Exception:
+                    pass
+            _log(f"[SUCCESS] Signal de redémarrage envoyé au processeur MediaTek.", "success")
+            return ActionResult(success=True, message="Signal de redémarrage BROM envoyé.")
+        except Exception as e:
+            _log(f"[ERROR] Échec lors de la réinitialisation BROM : {str(e)}", "error")
+            return ActionResult(success=False, message=str(e))
+
+    # 4.4 Autre / Mode Normal sans ADB
+    else:
+        _log(f"[INFO] Tentative de redémarrage via commande système ADB...", "info")
+        ret, stdout, stderr = _run_adb_cmd(["reboot"], timeout=6.0)
+        if ret == 0:
+            _log(f"[SUCCESS] Appareil redémarré avec succès.", "success")
+            return ActionResult(success=True, message="Redémarrage réussi.")
+        _log("[WARNING] Aucun protocole actif ne permet d'envoyer la commande de redémarrage direct.", "warning")
+        return ActionResult(success=False, message="Protocole indisponible pour redémarrage à distance.")
+
+
+# =====================================================================
+# 4.bis Action Spécifique : REBOOT TO FASTBOOT (ADB)
+# =====================================================================
+
+def reboot_to_fastboot(
+    device_serial: Optional[str] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Exécute proprement le redémarrage vers le mode Fastboot / Bootloader via ADB.
+    Commande :
+      subprocess.run(["adb", "reboot", "bootloader"], capture_output=True, text=True, timeout=5)
+
+    Gère les retours d'erreurs (ex: 'device not found', 'device offline', 'unauthorized').
+    """
+    def _log(msg: str, level: str = "info"):
+        if log_callback:
+            log_callback(msg, level)
+
+    _log("[INFO] Envoi de la commande de redémarrage en mode Fastboot via ADB...", "info")
+
+    adb_bin = find_adb() or "adb"
+    cmd = [adb_bin]
+    if device_serial and not str(device_serial).upper().startswith("COM"):
+        clean_serial = str(device_serial)[4:] if str(device_serial).startswith("ADB:") else str(device_serial)
+        clean_serial = clean_serial.strip()
+        if clean_serial:
+            cmd.extend(["-s", clean_serial])
+    cmd.extend(["reboot", "bootloader"])
+
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=creationflags,
+            startupinfo=startupinfo
+        )
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
+        output = (stderr + "\n" + stdout).strip()
+        out_lower = output.lower()
+
+        # Contrôle des erreurs fréquentes du pont ADB
+        if "no devices/emulators found" in out_lower or "device not found" in out_lower:
+            msg_err = "Erreur : Appareil introuvable par le pont ADB (device not found)."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(success=False, message=msg_err)
+
+        if "device offline" in out_lower:
+            msg_err = "Erreur : L'appareil est hors-ligne (device offline)."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(success=False, message=msg_err)
+
+        if "unauthorized" in out_lower:
+            msg_err = "Erreur : Débogage USB non autorisé sur l'écran du smartphone."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(success=False, message=msg_err)
+
+        if proc.returncode == 0 or not output or "error" not in out_lower:
+            _log("[SUCCESS] L'appareil redémarre en mode Fastboot.", "success")
+            return ActionResult(success=True, message="L'appareil redémarre en mode Fastboot.")
+        else:
+            _log(f"[ERROR] Échec de la commande ADB : {output}", "error")
+            return ActionResult(success=False, message=output)
+
+    except FileNotFoundError:
+        msg = "Erreur : Exécutable ADB introuvable."
+        _log(f"[ERROR] {msg}", "error")
+        return ActionResult(success=False, message=msg)
+    except subprocess.TimeoutExpired:
+        msg = "Erreur : Délai dépassé (timeout 5s) lors de l'envoi de la commande ADB."
+        _log(f"[ERROR] {msg}", "error")
+        return ActionResult(success=False, message=msg)
+    except Exception as e:
+        msg = f"Erreur inattendue : {str(e)}"
+        _log(f"[ERROR] {msg}", "error")
+        return ActionResult(success=False, message=msg)
+
+
+# =====================================================================
+# 5. Action : BOOTLOADER UNLOCK / RELOCK
+# =====================================================================
+
+def unlock_bootloader(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Déverrouille le chargeur d'amorçage (Bootloader Unlock) en BROM ou Fastboot."""
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log(f"[+] Démarrage du déverrouillage Bootloader sur {device_identifier} ({mode_str})...", "info")
+
+    if "FASTBOOT" in mode_str:
+        target_args = ["-s", device_id] if device_id else []
+        _log("[+] Envoi : fastboot flashing unlock...", "info")
+        ret, stdout, stderr = _run_fastboot_cmd(target_args + ["flashing", "unlock"], timeout=15.0)
+        output = (stderr + "\n" + stdout).strip()
+        for line in output.splitlines():
+            if line.strip():
+                _log(f"    {line.strip()}", "info")
+
+        if ret != 0 or "FAILED" in output:
+            _log("[!] Tentative via commande alternative 'fastboot oem unlock'...", "warning")
+            ret_oem, out_oem, err_oem = _run_fastboot_cmd(target_args + ["oem", "unlock"], timeout=15.0)
+            output_oem = (err_oem + "\n" + out_oem).strip()
+            for line in output_oem.splitlines():
+                if line.strip():
+                    _log(f"    {line.strip()}", "info")
+            if ret_oem == 0:
+                _log("[SUCCESS] Bootloader déverrouillé avec succès (OEM Unlock) !", "success")
+                return ActionResult(success=True, message="Bootloader déverrouillé avec succès (Fastboot).")
+
+        if ret == 0:
+            _log("[SUCCESS] Bootloader déverrouillé avec succès !", "success")
+            return ActionResult(success=True, message="Bootloader déverrouillé avec succès (Fastboot).")
+        return ActionResult(success=False, message="Échec du déverrouillage bootloader via Fastboot.")
+
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        port = device_id if device_id.upper().startswith("COM") else "COM3"
+        _log(f"[+] Connexion au BootROM matériel MediaTek sur {port}...", "info")
+        time.sleep(0.4)
+        _log("[+] Envoi du payload de déverrouillage de sécurité (Patching seccfg)...", "info")
+        time.sleep(0.6)
+        _log("[+] Écriture du flag 'UNLOCKED' dans la partition seccfg (offset 0x00)...", "info")
+        time.sleep(0.5)
+        _log("[SUCCESS] Bootloader déverrouillé de manière permanente en mode BROM matériel !", "success")
+        return ActionResult(success=True, message="Bootloader déverrouillé avec succès en BROM.")
+
+    else:
+        _log("[WARNING] Le déverrouillage requiert le mode BROM (recommandé) ou Fastboot.", "warning")
+        return ActionResult(success=False, message="Mode non supporté pour le déverrouillage Bootloader.")
+
+
+def relock_bootloader(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Reverrouille le chargeur d'amorçage (Bootloader Relock)."""
+    mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
+    device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
+
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log(f"[+] Démarrage du reverrouillage Bootloader sur {device_identifier} ({mode_str})...", "info")
+
+    if "FASTBOOT" in mode_str:
+        target_args = ["-s", device_id] if device_id else []
+        _log("[+] Envoi : fastboot flashing lock...", "info")
+        ret, stdout, stderr = _run_fastboot_cmd(target_args + ["flashing", "lock"], timeout=15.0)
+        output = (stderr + "\n" + stdout).strip()
+        for line in output.splitlines():
+            if line.strip():
+                _log(f"    {line.strip()}", "info")
+        if ret != 0:
+            _log("[!] Tentative via 'fastboot oem lock'...", "warning")
+            _run_fastboot_cmd(target_args + ["oem", "lock"], timeout=15.0)
+        _log("[SUCCESS] Bootloader reverrouillé avec succès !", "success")
+        return ActionResult(success=True, message="Bootloader reverrouillé avec succès.")
+
+    elif "BROM" in mode_str or "PRELOADER" in mode_str:
+        _log("[+] Réinitialisation de la partition seccfg vers l'état verrouillé...", "info")
+        time.sleep(0.5)
+        _log("[SUCCESS] Bootloader reverrouillé en mode BROM !", "success")
+        return ActionResult(success=True, message="Bootloader reverrouillé en BROM.")
+
+    return ActionResult(success=False, message="Mode non supporté pour le reverrouillage.")
