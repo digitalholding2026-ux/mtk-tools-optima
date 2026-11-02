@@ -3,6 +3,7 @@
 Onglet 3 : [Outils & Redémarrage] pour Optima MTK Tool.
 Comprend :
   - Factory Reset (Formatage d'usine / effacement complet des données utilisateur)
+  - Factory Reset via ADB (Réinitialisation d'usine explicite pour appareil allumé)
   - Options de redémarrage direct :
       * Reboot Normal (Système)
       * Reboot Fastboot (Bootloader)
@@ -125,18 +126,32 @@ class ToolsTab(QWidget):
         lbl_reset_modes = QLabel("Compatible : Mode BROM, Fastboot ou ADB (débogage actif)")
         lbl_reset_modes.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 10px; font-weight: bold;")
 
-        self.btn_factory_reset = QPushButton("🧹 Lancer le Factory Reset")
+        btn_reset_grid = QHBoxLayout()
+        btn_reset_grid.setSpacing(10)
+
+        self.btn_factory_reset = QPushButton("🧹 Lancer Factory Reset")
         self.btn_factory_reset.setObjectName("btnReset")
         self.btn_factory_reset.setMinimumHeight(40)
         self.btn_factory_reset.setCursor(Qt.PointingHandCursor)
-        self.btn_factory_reset.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        self.btn_factory_reset.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_factory_reset.clicked.connect(self._on_factory_reset_clicked)
+
+        self.btn_adb_factory_reset = QPushButton("📱 Factory Reset (ADB)")
+        self.btn_adb_factory_reset.setObjectName("btnAdbReset")
+        self.btn_adb_factory_reset.setMinimumHeight(40)
+        self.btn_adb_factory_reset.setCursor(Qt.PointingHandCursor)
+        self.btn_adb_factory_reset.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.btn_adb_factory_reset.setToolTip("Exécute la réinitialisation d'usine via le pont ADB sur un appareil allumé.")
+        self.btn_adb_factory_reset.clicked.connect(self._on_adb_factory_reset_clicked)
+
+        btn_reset_grid.addWidget(self.btn_factory_reset)
+        btn_reset_grid.addWidget(self.btn_adb_factory_reset)
 
         reset_layout.addWidget(lbl_reset_title)
         reset_layout.addWidget(lbl_reset_warn)
         reset_layout.addWidget(lbl_reset_modes)
         reset_layout.addStretch()
-        reset_layout.addWidget(self.btn_factory_reset)
+        reset_layout.addLayout(btn_reset_grid)
 
         top_grid.addWidget(reset_group, 0, 0)
 
@@ -313,6 +328,22 @@ class ToolsTab(QWidget):
                 background-color: {COLOR_ERROR};
                 color: #ffffff;
             }}
+            QPushButton#btnAdbReset {{
+                background-color: #3b2414;
+                color: {COLOR_WARNING};
+                border: 1px solid {COLOR_WARNING}88;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }}
+            QPushButton#btnAdbReset:hover {{
+                background-color: #55341c;
+                border-color: {COLOR_WARNING};
+                color: #ffffff;
+            }}
+            QPushButton#btnAdbReset:pressed {{
+                background-color: {COLOR_WARNING};
+                color: #ffffff;
+            }}
             QPushButton#btnRebootNormal, QPushButton#btnRebootFastboot, QPushButton#btnRebootRecovery {{
                 background-color: #1a2032;
                 color: {COLOR_TEXT};
@@ -388,8 +419,34 @@ class ToolsTab(QWidget):
         else:
             self._execute_factory_reset(self.current_device)
 
+    def _on_adb_factory_reset_clicked(self):
+        """Déclenche spécifiquement la réinitialisation d'usine via le pont ADB."""
+        reply = QMessageBox.warning(
+            self,
+            "Confirmation Factory Reset via ADB",
+            "<b>EFFACEMENT DES DONNÉES VIA ADB</b><br><br>"
+            "Cette action enverra la commande de réinitialisation d'usine à l'appareil connecté via ADB.<br>"
+            "Toutes les données utilisateur seront effacées.<br><br>"
+            "Voulez-vous continuer ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        main_win = self.window()
+        if hasattr(main_win, "run_action_with_assistant"):
+            main_win.run_action_with_assistant(
+                action_name="Factory Reset (ADB)",
+                operation_func=self._execute_factory_reset,
+                target_modes=[DeviceMode.ADB, DeviceMode.NORMAL]
+            )
+        else:
+            self._execute_factory_reset(self.current_device)
+
     def _execute_factory_reset(self, device: ConnectedDevice):
         self.btn_factory_reset.setEnabled(False)
+        self.btn_adb_factory_reset.setEnabled(False)
         self.progress_bar.setValue(15)
         self.txt_log.clear()
 
@@ -401,6 +458,7 @@ class ToolsTab(QWidget):
 
     def _on_factory_reset_finished(self, success: bool, message: str):
         self.btn_factory_reset.setEnabled(True)
+        self.btn_adb_factory_reset.setEnabled(True)
         if success:
             self.progress_bar.setValue(100)
             QMessageBox.information(
