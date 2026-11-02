@@ -95,6 +95,10 @@ ANDROID_VENDOR_IDS = {
     0x05C6: "Qualcomm / Snapdragon",
     0x1EBF: "Tecno / Transsion",
     0x1D45: "Infinix / Transsion",
+    0x201E: "Itel / Transsion",
+    0x22D9: "Oppo / Realme / OnePlus",
+    0x2D95: "Vivo / iQOO",
+    0x22B8: "Motorola",
     0x2E04: "Nothing Phone",
 }
 
@@ -271,24 +275,29 @@ class UsbScanner:
             return None
 
         is_mtk = vid in MTK_VENDOR_IDS
+        is_android = vid in ANDROID_VENDOR_IDS
         vendor_name = MTK_VENDOR_IDS.get(vid, ANDROID_VENDOR_IDS.get(vid, ""))
 
-        if not is_mtk:
-            return None  # Hors périmètre — on ignore les VID non-MTK
+        if not is_mtk and not is_android:
+            return None  # Hors périmètre — on ignore les périphériques non-téléphonie
 
         # Lecture sécurisée des descripteurs de chaînes
         manufacturer = self._read_string_descriptor(device, getattr(device, "iManufacturer", 0))
         product_str   = self._read_string_descriptor(device, getattr(device, "iProduct", 0))
         serial_number = self._read_string_descriptor(device, getattr(device, "iSerialNumber", 0))
 
-        # Classification par PID
-        mode, protocol = MTK_PRODUCT_MAP.get(pid, ("USB_NORMAL", "MediaTek USB (mode inconnu)"))
+        # Classification par PID et VID
+        if is_mtk:
+            mode, protocol = MTK_PRODUCT_MAP.get(pid, ("USB_NORMAL", "MediaTek USB (mode inconnu)"))
+        else:
+            mode = "USB_NORMAL"
+            protocol = f"Périphérique USB Android ({vendor_name or 'Mode Normal'})"
 
         # Description conviviale
         if product_str:
             description = f"{product_str} ({vendor_name})"
         elif vendor_name:
-            description = f"{vendor_name} — VID:0x{vid:04X} PID:0x{pid:04X}"
+            description = f"Smartphone {vendor_name} — VID:0x{vid:04X} PID:0x{pid:04X}"
         else:
             description = f"Périphérique USB MTK — VID:0x{vid:04X} PID:0x{pid:04X}"
 
@@ -326,18 +335,16 @@ class UsbScanner:
         results: List[UsbDeviceInfo] = []
 
         try:
-            # Recherche directe par VID MediaTek (très rapide — filtrage hardware)
-            raw_devices = list(_usb_core.find(
-                idVendor=0x0E8D,
-                find_all=True,
-                backend=self._backend,
-            ))
-
-            # Ajout des VID alliés (Foxconn, Xiaomi MTK, etc.)
-            for allied_vid in (0x0489, 0x2717, 0x2A70):
+            # Recherche ciblée sur les VID MediaTek et constructeurs Android courants
+            target_vids = (
+                0x0E8D, 0x0489, 0x2717, 0x2A70,  # MediaTek & alliés
+                0x04E8, 0x1EBF, 0x1D45, 0x201E, 0x22D9, 0x2D95, 0x22B8, 0x18D1  # Constructeurs Android
+            )
+            raw_devices = []
+            for target_vid in target_vids:
                 try:
                     extras = list(_usb_core.find(
-                        idVendor=allied_vid,
+                        idVendor=target_vid,
                         find_all=True,
                         backend=self._backend,
                     ))

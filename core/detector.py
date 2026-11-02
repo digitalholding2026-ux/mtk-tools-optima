@@ -308,7 +308,7 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=2,
+            timeout=3,
             creationflags=creationflags,
             startupinfo=startupinfo
         )
@@ -329,7 +329,7 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=2,
+            timeout=6,
             creationflags=detached_flags,
             startupinfo=startupinfo
         )
@@ -589,9 +589,13 @@ class DeviceDetector(QThread):
             try:
                 adb_dev, usb_normal_dev = self._scan_adb_detailed()
                 if adb_dev:
+                    # Remplacement des périphériques génériques non-authentifiés par l'appareil ADB confirmé
+                    results = [d for d in results if d.mode != DeviceMode.USB_NORMAL]
                     results.append(adb_dev)
-                elif usb_normal_dev and not results:
-                    results.append(usb_normal_dev)
+                elif usb_normal_dev:
+                    # Débogage USB non autorisé ou mode normal : l'inclure si pas déjà présent
+                    if not any(d.identifier == usb_normal_dev.identifier for d in results):
+                        results.append(usb_normal_dev)
             except Exception:
                 pass
 
@@ -644,7 +648,7 @@ class DeviceDetector(QThread):
                     protocol = usb_dev.protocol or "Protocole AT / Modem MTK"
                 else:
                     device_mode = DeviceMode.USB_NORMAL
-                    protocol = usb_dev.protocol or "Périphérique USB MediaTek"
+                    protocol = usb_dev.protocol or f"Périphérique USB ({usb_dev.vendor_name or 'Android'})"
 
                 # Identifiant stable unique (bus:addr ou serial si disponible)
                 identifier = usb_dev.identifier
@@ -832,7 +836,7 @@ class DeviceDetector(QThread):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=2,
+                timeout=6,
                 creationflags=creationflags,
                 startupinfo=startupinfo
             )
@@ -903,7 +907,7 @@ class DeviceDetector(QThread):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=2,
+                timeout=6,
                 creationflags=creationflags,
                 startupinfo=startupinfo
             )

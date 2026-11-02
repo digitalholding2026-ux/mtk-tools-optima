@@ -820,7 +820,12 @@ class ConnectionManagerPanel(QFrame):
             elif device.mode in (DeviceMode.USB_NORMAL, DeviceMode.NORMAL):
                 self.row_brom["val_lbl"].setText("🔴 Déconnecté")
                 self.row_fastboot["val_lbl"].setText("🔴 Déconnecté")
-                self.row_adb["val_lbl"].setText("🟡 Non autorisé")
+                det_str = str(getattr(device, "details", {})).lower()
+                proto_str = (device.protocol or "").lower()
+                if "unauthorized" in det_str or "non autorisé" in proto_str:
+                    self.row_adb["val_lbl"].setText("🟡 Non autorisé (Valider écran)")
+                else:
+                    self.row_adb["val_lbl"].setText("🟡 Détecté (Débogage inactif)")
                 self.row_adb["val_lbl"].setStyleSheet(f"color: {COLOR_WARNING}; font-weight: bold;")
 
             name = device.description or "Périphérique MediaTek"
