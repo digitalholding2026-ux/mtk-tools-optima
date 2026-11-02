@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Logique de communication métier avec les processeurs MediaTek.
-S'adapte dynamiquement selon le mode détecté (BROM, Fastboot, Normal/AT).
+S'adapte dynamiquement selon le mode détecté (BROM, Fastboot, Normal/AT, ADB).
 """
 
 import threading
@@ -146,6 +146,7 @@ class MTKCommunication(QObject):
     def factory_reset(self, callback=None):
         """
         Effectue une réinitialisation d'usine / formatage des données via core.actions.factory_reset.
+        Supporte les modes BROM, Fastboot, et ADB / Normal.
         """
         if not self._connected or not self._current_device:
             self.log.emit("Erreur : Aucun appareil connecté pour le Factory Reset.", "error")

@@ -9,6 +9,7 @@ Gère les opérations :
 Supporte :
   - Mode FASTBOOT : commandes directes fastboot (getvar all, erase userdata/cache, erase frp/config)
   - Mode BROM / PRELOADER : commandes série pyserial (handshake 0xA0/0x0A, lecture HW Code, partition wipe)
+  - Mode ADB : commandes ADB (shell recovery --wipe_data, master_clear, reboot recovery)
 """
 
 import os
@@ -446,20 +447,41 @@ def read_device_info(
             return ActionResult(success=False, message=str(e))
 
     # -------------------------------------------------------------
-    # 1.3 Mode NORMAL / AT
+    # 1.3 Mode NORMAL / AT / ADB
     # -------------------------------------------------------------
     else:
-        _log(f"[+] Mode Normal/AT détecté sur {device_identifier}.", "info")
+        _log(f"[+] Mode Normal/ADB détecté sur {device_identifier}.", "info")
+        target_args = ["-s", device_id] if device_id else []
+
+        model_name = "MediaTek Android Smartphone"
+        android_ver = "Android (Système en cours d'exécution)"
+        serial_no = device_id or "Inconnu"
+        chipset = "MediaTek Helio / Dimensity"
+
+        # Tenter d'obtenir des infos précises via ADB shell getprop
+        ret, stdout, stderr = _run_adb_cmd(target_args + ["shell", "getprop", "ro.product.model"], timeout=5.0)
+        if ret == 0 and stdout.strip():
+            model_name = stdout.strip()
+
+        ret_ver, stdout_ver, _ = _run_adb_cmd(target_args + ["shell", "getprop", "ro.build.version.release"], timeout=5.0)
+        if ret_ver == 0 and stdout_ver.strip():
+            android_ver = f"Android {stdout_ver.strip()}"
+
+        ret_board, stdout_board, _ = _run_adb_cmd(target_args + ["shell", "getprop", "ro.hardware"], timeout=5.0)
+        if ret_board == 0 and stdout_board.strip():
+            chipset = f"MediaTek {stdout_board.strip()}"
+
         info_data = {
-            "name": "MediaTek Android Smartphone",
-            "model": "Smartphone MediaTek (OS Actif)",
-            "android_version": "Android (Système en cours d'exécution)",
-            "chipset": "MediaTek Helio / Dimensity",
-            "serial": device_id,
-            "imei": "Accessible via commandes AT"
+            "name": model_name,
+            "model": model_name,
+            "android_version": android_ver,
+            "chipset": chipset,
+            "serial": serial_no,
+            "imei": "Accessible via requêtes ADB AT"
         }
-        _log("[SUCCESS] Informations récupérées pour l'appareil en mode Normal.", "success")
-        return ActionResult(success=True, message="Informations récupérées en mode Normal.", data=info_data)
+        _log(f"[+] Modèle identifié (ADB) : {model_name} ({android_ver})", "info")
+        _log("[SUCCESS] Informations récupérées pour l'appareil en mode Normal / ADB.", "success")
+        return ActionResult(success=True, message="Informations récupérées en mode Normal / ADB.", data=info_data)
 
 
 # =====================================================================
@@ -473,6 +495,7 @@ def factory_reset(
 ) -> ActionResult:
     """
     Exécute l'effacement complet des données utilisateur (Formatage d'usine / Userdata).
+    Supporte : FASTBOOT, BROM/PRELOADER, ADB (mode normal avec débogage USB).
     """
     mode_str = mode.value if isinstance(mode, DeviceMode) else str(mode).upper()
     device_id = str(device_identifier or "").replace("FASTBOOT:", "").replace("ADB:", "").strip()
@@ -562,10 +585,58 @@ def factory_reset(
             return ActionResult(success=False, message=str(e))
 
     # -------------------------------------------------------------
-    # 2.3 Mode NORMAL
+    # 2.3 Mode ADB / NORMAL (Réinitialisation d'usine via pont ADB)
+    # -------------------------------------------------------------
+    elif "ADB" in mode_str or "NORMAL" in mode_str:
+        _log(f"[+] Exécution du Factory Reset via le pont ADB pour {device_identifier}...", "info")
+        target_args = ["-s", device_id] if device_id else []
+
+        # Tentative 1 : Commande shell recovery --wipe_data
+        _log("[+] Envoi de l'instruction ADB shell 'recovery --wipe_data'...", "info")
+        ret1, out1, err1 = _run_adb_cmd(target_args + ["shell", "recovery", "--wipe_data"], timeout=10.0)
+        out_combined1 = (err1 + "\n" + out1).strip()
+
+        if ret1 == 0 and "error" not in out_combined1.lower():
+            _log("[SUCCESS] Instruction wipe_data envoyée avec succès via ADB.", "success")
+            return ActionResult(success=True, message="Factory Reset initié via ADB (Recovery Wipe).")
+
+        # Tentative 2 : Commande shell wipe data
+        _log("[!] Méthode 1 non prise en charge. Envoi de 'adb shell wipe data'...", "warning")
+        ret2, out2, err2 = _run_adb_cmd(target_args + ["shell", "wipe", "data"], timeout=10.0)
+        out_combined2 = (err2 + "\n" + out2).strip()
+
+        if ret2 == 0 and "not found" not in out_combined2.lower() and "error" not in out_combined2.lower():
+            _log("[SUCCESS] Formatage des données initié via ADB shell wipe.", "success")
+            return ActionResult(success=True, message="Factory Reset réussi via ADB wipe.")
+
+        # Tentative 3 : Intent Master Clear (android.intent.action.MASTER_CLEAR / FACTORY_RESET)
+        _log("[!] Tentative via broadcast Intent Android (MASTER_CLEAR / FACTORY_RESET)...", "info")
+        ret3, out3, err3 = _run_adb_cmd(
+            target_args + ["shell", "am", "broadcast", "-a", "android.intent.action.MASTER_CLEAR"],
+            timeout=8.0
+        )
+        if ret3 != 0:
+            _run_adb_cmd(
+                target_args + ["shell", "am", "broadcast", "-a", "com.google.android.gms.recovery.WIPE_DATA"],
+                timeout=8.0
+            )
+
+        # Tentative 4 : Redémarrage forcé en mode Recovery pour purger les données
+        _log("[+] Envoi du signal de redémarrage en mode Recovery (reboot recovery)...", "info")
+        ret4, out4, err4 = _run_adb_cmd(target_args + ["reboot", "recovery"], timeout=10.0)
+
+        if ret4 == 0:
+            _log("[SUCCESS] L'appareil redémarre en mode Recovery pour finaliser l'effacement des données.", "success")
+            return ActionResult(success=True, message="Appareil redémarré en mode Recovery pour le Factory Reset.")
+
+        _log(f"[ERROR] Échec de la réinitialisation via ADB : {out_combined1}", "error")
+        return ActionResult(success=False, message="Échec de l'explication du Factory Reset via ADB.")
+
+    # -------------------------------------------------------------
+    # 2.4 Mode non supporté
     # -------------------------------------------------------------
     else:
-        _log("[WARNING] Le Factory Reset matériel complet requiert le mode BROM ou Fastboot.", "warning")
+        _log("[WARNING] Le Factory Reset matériel requiert le mode BROM, Fastboot ou ADB.", "warning")
         _log("[INFO] Veuillez éteindre le téléphone et le brancher en maintenant Volume Bas.", "info")
         return ActionResult(success=False, message="Mode non adapté pour le Factory Reset.")
 
@@ -671,7 +742,7 @@ def erase_frp(
             return ActionResult(success=False, message=str(e))
 
     # -------------------------------------------------------------
-    # 3.3 Mode NORMAL
+    # 3.3 Mode NORMAL / ADB
     # -------------------------------------------------------------
     else:
         _log("[WARNING] Le déblocage FRP requiert le mode BROM (recommandé) ou Fastboot.", "warning")

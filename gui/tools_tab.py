@@ -122,7 +122,7 @@ class ToolsTab(QWidget):
         lbl_reset_warn.setWordWrap(True)
         lbl_reset_warn.setStyleSheet("color: #e59990; font-size: 11px;")
 
-        lbl_reset_modes = QLabel("Compatible : Mode BROM (téléphone éteint) ou Fastboot")
+        lbl_reset_modes = QLabel("Compatible : Mode BROM, Fastboot ou ADB (débogage actif)")
         lbl_reset_modes.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 10px; font-weight: bold;")
 
         self.btn_factory_reset = QPushButton("🧹 Lancer le Factory Reset")
@@ -383,7 +383,7 @@ class ToolsTab(QWidget):
             main_win.run_action_with_assistant(
                 action_name="Factory Reset",
                 operation_func=self._execute_factory_reset,
-                target_modes=[DeviceMode.BROM, DeviceMode.FASTBOOT]
+                target_modes=[DeviceMode.BROM, DeviceMode.FASTBOOT, DeviceMode.ADB]
             )
         else:
             self._execute_factory_reset(self.current_device)

@@ -240,7 +240,7 @@ class ModelSelectorPanel(QFrame):
         self.lbl_target_chip = QLabel("SoC : MT6765 / MT6768 Universal")
         self.lbl_target_chip.setStyleSheet(f"color: {COLOR_CYAN}; font-size: 10px; font-weight: bold;")
 
-        self.lbl_target_modes = QLabel("Méthodes : BROM • FASTBOOT • META")
+        self.lbl_target_modes = QLabel("Méthodes : BROM • FASTBOOT • META • ADB")
         self.lbl_target_modes.setStyleSheet(f"color: #cbd5e1; font-size: 9px;")
 
         card_layout.addWidget(lbl_target_title)
@@ -284,7 +284,7 @@ class ModelSelectorPanel(QFrame):
         self._selected_model = model_data
         self.lbl_target_model.setText(model_data["model"])
         self.lbl_target_chip.setText(f"SoC : {model_data.get('chipset', 'MTK Generic')}")
-        modes_str = " • ".join(model_data.get("modes", ["BROM", "FASTBOOT"]))
+        modes_str = " • ".join(model_data.get("modes", ["BROM", "FASTBOOT", "ADB"]))
         self.lbl_target_modes.setText(f"Méthodes : {modes_str}")
         self.model_selected.emit(model_data)
 
@@ -480,6 +480,9 @@ class ActionTabsPanel(QFrame):
         btn_reset = ActionButton("BROM", "FACTORY RESET (USERDATA)", "Formatage complet de la partition userdata", COLOR_DANGER)
         btn_reset.clicked.connect(lambda: self.action_triggered.emit("BROM_FACTORY_RESET", {}))
 
+        btn_adb_reset = ActionButton("ADB", "FACTORY RESET (ADB WIPE)", "Réinitialisation usine via pont ADB actif", COLOR_DANGER)
+        btn_adb_reset.clicked.connect(lambda: self.action_triggered.emit("ADB_FACTORY_RESET", {}))
+
         btn_safe_format = ActionButton("BROM", "SAFE FORMAT (CACHE WIPE)", "Effacement sans supprimer les photos/données", COLOR_SUCCESS)
         btn_safe_format.clicked.connect(lambda: self.action_triggered.emit("BROM_SAFE_FORMAT", {}))
 
@@ -499,12 +502,13 @@ class ActionTabsPanel(QFrame):
         btn_auth_bypass.clicked.connect(lambda: self.action_triggered.emit("BROM_AUTH_BYPASS", {}))
 
         grid.addWidget(btn_reset, 0, 0)
-        grid.addWidget(btn_safe_format, 0, 1)
-        grid.addWidget(btn_read_info, 1, 0)
-        grid.addWidget(btn_remove_demo, 1, 1)
-        grid.addWidget(btn_adb_info, 2, 0)
-        grid.addWidget(btn_reboot_fb, 2, 1)
-        grid.addWidget(btn_auth_bypass, 3, 0)
+        grid.addWidget(btn_adb_reset, 0, 1)
+        grid.addWidget(btn_safe_format, 1, 0)
+        grid.addWidget(btn_read_info, 1, 1)
+        grid.addWidget(btn_remove_demo, 2, 0)
+        grid.addWidget(btn_adb_info, 2, 1)
+        grid.addWidget(btn_reboot_fb, 3, 0)
+        grid.addWidget(btn_auth_bypass, 3, 1)
 
         layout.addLayout(grid)
         layout.addStretch()
