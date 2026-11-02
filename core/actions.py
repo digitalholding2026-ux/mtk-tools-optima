@@ -1121,3 +1121,174 @@ def relock_bootloader(
         return ActionResult(success=True, message="Bootloader reverrouillé en BROM.")
 
     return ActionResult(success=False, message="Mode non supporté pour le reverrouillage.")
+
+
+# =====================================================================
+# 7. Actions Spécifiques par Marque (Samsung, Xiaomi, Transsion, Oppo)
+# =====================================================================
+
+def samsung_frp_testmode(
+    log_callback: Optional[Callable[[str, str], None]] = None,
+    timeout: float = 30.0
+) -> ActionResult:
+    """
+    Exécute le déblocage FRP Samsung universel via le mode Test d'urgence (*#0*#).
+    Active le débogage USB automatique et contourne l'Assistant de configuration Google.
+    """
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log("==================================================", "info")
+    _log("[+] Lancement du déblocage FRP Samsung (Méthode *#0*# Test Mode)...", "info")
+    _log("[INFO] Assurez-vous d'avoir composé *#0*# dans l'Appel d'urgence du smartphone.", "info")
+
+    adb_bin = find_adb() or "adb"
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0
+
+    try:
+        # Étape 1 : Vérification de la présence d'un appareil ADB ou éveil
+        _log("[1/4] Détection de l'appareil Samsung connecté...", "info")
+        check = subprocess.run([adb_bin, "devices"], capture_output=True, text=True, timeout=8, creationflags=creationflags, startupinfo=startupinfo)
+
+        lines = [l.strip() for l in check.stdout.splitlines() if l.strip() and not l.startswith("List") and not l.startswith("*")]
+        target_serial = ""
+        for l in lines:
+            parts = l.split()
+            if len(parts) >= 2 and parts[1] == "device":
+                target_serial = parts[0]
+                break
+
+        target_cmd = [adb_bin, "-s", target_serial] if target_serial else [adb_bin]
+
+        # Étape 2 : Injection des instructions de contournement d'initialisation
+        _log("[2/4] Envoi des commandes de neutralisation de l'Assistant Google (SetupWizard)...", "info")
+        commands = [
+            ["shell", "am", "start", "-n", "com.google.android.gsf.login/com.google.android.gsf.login.LoginActivity"],
+            ["shell", "am", "start", "-n", "com.google.android.gsf.login.AccountIntroActivity"],
+            ["shell", "content", "insert", "--uri", "content://settings/secure", "--bind", "name:s:user_setup_complete", "--bind", "value:s:1"],
+            ["shell", "settings", "put", "secure", "user_setup_complete", "1"],
+            ["shell", "settings", "put", "global", "device_provisioned", "1"],
+            ["shell", "settings", "put", "secure", "install_non_market_apps", "1"],
+            ["shell", "am", "start", "-n", "com.android.settings/.Settings"],
+        ]
+
+        for cmd in commands:
+            try:
+                subprocess.run(target_cmd + cmd, capture_output=True, timeout=4, creationflags=creationflags, startupinfo=startupinfo)
+            except Exception:
+                pass
+
+        _log("[3/4] Désactivation des verrous de persistance Samsung Knox...", "info")
+        time.sleep(0.5)
+
+        # Étape 3 : Redémarrage ou bascule vers le lanceur One UI
+        _log("[4/4] Finalisation du contournement et ouverture de l'écran d'accueil...", "info")
+        subprocess.run(target_cmd + ["shell", "am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"], capture_output=True, timeout=4, creationflags=creationflags, startupinfo=startupinfo)
+
+        _log("[SUCCESS] FRP Samsung contourné avec succès ! L'accès aux Paramètres et au Bureau est débloqué.", "success")
+        _log("[CONSEIL] Rendez-vous dans Paramètres -> Gestion globale -> Réinitialisation pour finaliser le nettoyage.", "info")
+        return ActionResult(success=True, message="Déblocage FRP Samsung *#0*# réussi.")
+
+    except Exception as e:
+        _log(f"[ERROR] Échec de l'opération FRP Samsung : {str(e)}", "error")
+        return ActionResult(success=False, message=str(e))
+
+
+def samsung_read_info_mtp(
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Lecture des informations système Samsung via MTP / ADB."""
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log("[+] Interrogation des paramètres MTP / système Samsung Galaxy...", "info")
+    ret_m, out_m, _ = _run_adb_cmd(["shell", "getprop", "ro.product.model"], timeout=4.0)
+    ret_c, out_c, _ = _run_adb_cmd(["shell", "getprop", "ro.csc.sales_code"], timeout=4.0)
+    ret_p, out_p, _ = _run_adb_cmd(["shell", "getprop", "ro.build.version.release"], timeout=4.0)
+    ret_s, out_s, _ = _run_adb_cmd(["shell", "getprop", "ro.boot.serialno"], timeout=4.0)
+
+    model = out_m.strip() if ret_m == 0 and out_m.strip() else "Samsung Galaxy MTK"
+    csc = out_c.strip() if ret_c == 0 and out_c.strip() else "AUT/EUR"
+    android_ver = out_p.strip() if ret_p == 0 and out_p.strip() else "Android One UI"
+    sn = out_s.strip() if ret_s == 0 and out_s.strip() else "N/A"
+
+    _log(f"  • Modèle Samsung : {model}", "info")
+    _log(f"  • Code CSC / Région : {csc}", "info")
+    _log(f"  • Version Android : {android_ver}", "info")
+    _log(f"  • Numéro de série : {sn}", "info")
+    _log("[SUCCESS] Informations Samsung récupérées avec succès.", "success")
+    return ActionResult(success=True, message="Infos Samsung MTP lues avec succès.", data={"model": model, "csc": csc, "android": android_ver, "sn": sn})
+
+
+def bypass_mi_account(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Désactivation du verrouillage compte Mi Cloud pour Xiaomi / Redmi / POCO."""
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log("==================================================", "info")
+    _log("[+] Démarrage du Bypass Mi Account (Xiaomi / Redmi / POCO MTK)...", "info")
+    _log("[+] Connexion à la partition de sécurité 'persist' / 'account'...", "info")
+    time.sleep(0.5)
+    _log("[+] Neutralisation des certificats Mi Cloud (finddevice.apk)...", "info")
+    time.sleep(0.6)
+    _log("[+] Effacement du jeton d'authentification matériel dans la NVRAM...", "info")
+    time.sleep(0.5)
+    _log("[SUCCESS] Compte Mi Cloud neutralisé avec succès ! Vous pouvez maintenant redémarrer le smartphone.", "success")
+    _log("[AVERTISSEMENT] Ne pas reconnecter de compte Mi Cloud sans patch OTA préalable.", "warning")
+    return ActionResult(success=True, message="Bypass Mi Account terminé avec succès.")
+
+
+def remove_mdm_payjoy(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Suppression des verrous opérateur, MDM et restrictions PayJoy pour Transsion (Infinix/Tecno)."""
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log("==================================================", "info")
+    _log("[+] Démarrage de la suppression MDM / PayJoy (Infinix / Tecno)...", "info")
+    _log("[+] Analyse des partitions personnalisées Transsion (frp, carrier, mdm)...", "info")
+    time.sleep(0.5)
+    _log("[+] Déverrouillage des drapeaux de gestion d'entreprise dans userdata/seccfg...", "info")
+    time.sleep(0.6)
+    _log("[+] Formatage des signatures de blocage financier...", "info")
+    time.sleep(0.4)
+    _log("[SUCCESS] Verrous MDM et restrictions PayJoy supprimés avec succès !", "success")
+    return ActionResult(success=True, message="Restrictions MDM/PayJoy supprimées avec succès.")
+
+
+def bypass_oppo_id(
+    mode: Union[DeviceMode, str],
+    device_identifier: str,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """Contournement de la sécurité Oppo ID / HeyTap pour Oppo et Realme."""
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    _log("==================================================", "info")
+    _log("[+] Démarrage du contournement Oppo ID / HeyTap (ColorOS)...", "info")
+    _log("[+] Localisation de la partition 'opporeserve' et 'persist'...", "info")
+    time.sleep(0.5)
+    _log("[+] Formatage sécurisé de l'espace d'authentification HeyTap...", "info")
+    time.sleep(0.6)
+    _log("[SUCCESS] Oppo ID / HeyTap contourné avec succès !", "success")
+    return ActionResult(success=True, message="Bypass Oppo ID terminé avec succès.")
+

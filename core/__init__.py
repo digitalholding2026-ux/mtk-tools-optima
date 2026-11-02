@@ -14,7 +14,13 @@ from core.init_env import (
 )
 from core.actions import (
     read_device_info, factory_reset, factory_reset_adb, erase_frp, reboot_device,
-    reboot_to_fastboot, unlock_bootloader, relock_bootloader, ActionResult
+    reboot_to_fastboot, unlock_bootloader, relock_bootloader,
+    samsung_frp_testmode, samsung_read_info_mtp, bypass_mi_account,
+    remove_mdm_payjoy, bypass_oppo_id, ActionResult
+)
+from core.brands_config import (
+    BRANDS_CONFIG, get_brand_config, get_brand_actions,
+    get_brand_instructions, get_brand_badge
 )
 from core.detector import (
     DeviceDetector, JITConnectionWorker, ConnectedDevice, DeviceMode,

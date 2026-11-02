@@ -30,7 +30,9 @@ from core.detector import DeviceDetector, ConnectedDevice, DeviceMode
 from core.mtk_communication import MTKCommunication
 from core.actions import (
     erase_frp, factory_reset, factory_reset_adb, read_device_info, reboot_device,
-    unlock_bootloader, relock_bootloader, ActionResult
+    unlock_bootloader, relock_bootloader,
+    samsung_frp_testmode, samsung_read_info_mtp, bypass_mi_account,
+    remove_mdm_payjoy, bypass_oppo_id, ActionResult
 )
 
 
@@ -227,10 +229,30 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _on_brand_changed(self, brand_id: str):
         self.model_selector.load_brand(brand_id)
-        self._append_log(f"[+] Marque sélectionnée : {brand_id.upper()}", "info")
+        self.update_dynamic_menu(brand_id)
+        self._append_log(f"[+] Marque active : {brand_id.upper()} — Menus d'atelier actualisés", "info")
 
     def _on_model_selected(self, model_data: Dict[str, Any]):
-        self.action_tabs.update_selected_model(model_data)
+        brand_id = model_data.get("brand_id", self.brand_bar.get_active_brand())
+        self.update_dynamic_menu(brand_id, model_data)
+        self._append_log(f"[+] Modèle sélectionné : {model_data.get('model', 'Inconnu')} (SoC: {model_data.get('chipset', 'MTK')})", "info")
+
+    def update_dynamic_menu(self, brand_name: str, model_data: Optional[Dict[str, Any]] = None):
+        """
+        Met à jour dynamiquement l'ensemble des menus, boutons d'action et
+        instructions d'atelier en fonction de la marque et du modèle sélectionnés.
+        """
+        b_id = (brand_name or "MEDIATEK").upper()
+
+        # 1. Mise à jour dynamique du panneau central d'actions
+        self.action_tabs.load_brand_actions(b_id, model_data)
+
+        # 2. Mise à jour dynamique des instructions d'atelier dans le panneau droit
+        self.conn_manager.update_workshop_instructions(b_id)
+
+        # 3. Synchronisation de la barre supérieure des marques sans rebouclage
+        if hasattr(self, "brand_bar") and self.brand_bar.get_active_brand().upper() != b_id:
+            self.brand_bar.select_brand(b_id, notify=False)
 
     def _on_rescan_clicked(self):
         self._append_log("[+] Analyse immédiate des ports USB/ADB/Fastboot déclenchée...", "info")
@@ -292,6 +314,57 @@ class MainWindow(QMainWindow):
                 operation_func=lambda dev: erase_frp(DeviceMode.BROM, dev.port or dev.identifier, log_callback=self._append_log),
                 target_modes=[DeviceMode.BROM],
                 custom_instructions="1. Éteignez le Samsung Galaxy.\n2. Maintenez Vol+ et Vol- enfoncés.\n3. Branchez le câble USB."
+            )
+
+        elif action_key == "SAMSUNG_FRP_TESTMODE":
+            self.run_action_with_assistant(
+                action_name="[SAMSUNG] FRP (*#0*# Test Mode)",
+                operation_func=lambda dev: samsung_frp_testmode(log_callback=self._append_log),
+                target_modes=[DeviceMode.ADB, DeviceMode.USB_NORMAL, DeviceMode.NORMAL],
+                custom_instructions="1. Allumez le Galaxy.\n2. Allez sur l'écran d'urgence.\n3. Composez *#0*# pour afficher le menu de test.\n4. Branchez le câble USB."
+            )
+
+        elif action_key == "SAMSUNG_READ_INFO_MTP":
+            self.run_action_with_assistant(
+                action_name="[SAMSUNG] Lecture Infos MTP",
+                operation_func=lambda dev: samsung_read_info_mtp(log_callback=self._append_log),
+                target_modes=[DeviceMode.ADB, DeviceMode.USB_NORMAL, DeviceMode.NORMAL],
+                custom_instructions="Branchez le Samsung allumé en mode MTP (Transfert de fichiers)."
+            )
+
+        elif action_key == "SAMSUNG_KNOX_ENROLL":
+            self.run_action_with_assistant(
+                action_name="[SAMSUNG] Disable Knox Enrollment",
+                operation_func=lambda dev: remove_mdm_payjoy(dev.mode, dev.port or dev.identifier, log_callback=self._append_log),
+                target_modes=[DeviceMode.ADB, DeviceMode.BROM],
+                custom_instructions="Branchez le Samsung pour neutraliser les services Knox Enrollment."
+            )
+
+        elif action_key == "SAMSUNG_REBOOT_DOWNLOAD":
+            self._execute_reboot_direct("download")
+
+        elif action_key == "XIAOMI_MI_ACCOUNT_BYPASS":
+            self.run_action_with_assistant(
+                action_name="[XIAOMI] Bypass Mi Account",
+                operation_func=lambda dev: bypass_mi_account(dev.mode, dev.port or dev.serial_number or dev.identifier, log_callback=self._append_log),
+                target_modes=[DeviceMode.BROM, DeviceMode.FASTBOOT],
+                custom_instructions="1. Éteignez le Xiaomi.\n2. Maintenez Vol- (ou TestPoint BROM).\n3. Insérez le câble USB."
+            )
+
+        elif action_key == "TRANSSION_REMOVE_MDM":
+            self.run_action_with_assistant(
+                action_name="[TRANSSION] Suppression MDM / PayJoy",
+                operation_func=lambda dev: remove_mdm_payjoy(dev.mode, dev.port or dev.serial_number or dev.identifier, log_callback=self._append_log),
+                target_modes=[DeviceMode.BROM],
+                custom_instructions="1. Éteignez l'appareil Transsion (Infinix/Tecno).\n2. Maintenez Vol-.\n3. Insérez le câble USB."
+            )
+
+        elif action_key == "OPPO_ID_BYPASS":
+            self.run_action_with_assistant(
+                action_name="[OPPO/REALME] Bypass Oppo ID / HeyTap",
+                operation_func=lambda dev: bypass_oppo_id(dev.mode, dev.port or dev.serial_number or dev.identifier, log_callback=self._append_log),
+                target_modes=[DeviceMode.BROM],
+                custom_instructions="1. Éteignez l'appareil Oppo/Realme.\n2. Maintenez Vol+ et Vol-.\n3. Insérez le câble USB."
             )
 
         elif action_key == "BROM_UNLOCK_BL":
@@ -442,6 +515,17 @@ class MainWindow(QMainWindow):
             )
 
     def _execute_reboot_direct(self, target: str):
+        if target == "download":
+            from core.actions import find_adb
+            adb_bin = find_adb() or "adb"
+            self._append_log("[+] Envoi de la commande de bascule en mode Download (Odin)...", "info")
+            try:
+                subprocess.run([adb_bin, "reboot", "download"], capture_output=True, timeout=5)
+                self._append_log("[SUCCESS] Commande 'adb reboot download' envoyée avec succès !", "success")
+            except Exception as e:
+                self._append_log(f"[ERROR] Échec de la commande reboot download : {e}", "error")
+            return
+
         if target == "fastboot":
             current = self.detector.get_current_device()
             # Sécurité d'exécution : vérifier d'abord si un appareil est bien connecté en mode ADB

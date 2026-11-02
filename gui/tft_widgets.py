@@ -81,11 +81,13 @@ class BrandTabBar(QFrame):
         layout.addStretch()
         self._update_styles()
 
-    def select_brand(self, brand_id: str):
-        if brand_id in self._buttons:
-            self._active_brand = brand_id
+    def select_brand(self, brand_id: str, notify: bool = True):
+        b_id = brand_id.upper()
+        if b_id in self._buttons:
+            self._active_brand = b_id
             self._update_styles()
-            self.brand_changed.emit(brand_id)
+            if notify:
+                self.brand_changed.emit(b_id)
 
     def get_active_brand(self) -> str:
         return self._active_brand
@@ -420,15 +422,23 @@ class ActionTabsPanel(QFrame):
             }}
         """)
 
-        self.tab_widget.addTab(self._build_tab_security(), "🔒 SECURITY / FRP")
-        self.tab_widget.addTab(self._build_tab_function(), "⚙️ FUNCTION")
-        self.tab_widget.addTab(self._build_tab_fastboot(), "⚡ FASTBOOT")
-        self.tab_widget.addTab(self._build_tab_recovery(), "🛠️ RECOVERY")
-        self.tab_widget.addTab(self._build_tab_meta(), "🌐 META")
+        self._tab_grids: Dict[str, QGridLayout] = {}
+        self._current_brand: str = "MEDIATEK"
+        self._current_model: Optional[Dict[str, Any]] = None
+
+        self.tab_widget.addTab(self._build_category_tab("SECURITY"), "🔒 SECURITY / FRP")
+        self.tab_widget.addTab(self._build_category_tab("FUNCTION"), "⚙️ FUNCTION")
+        self.tab_widget.addTab(self._build_category_tab("FASTBOOT"), "⚡ FASTBOOT")
+        self.tab_widget.addTab(self._build_category_tab("RECOVERY"), "🛠️ RECOVERY")
+        self.tab_widget.addTab(self._build_category_tab("META"), "🌐 META")
 
         layout.addWidget(self.tab_widget, stretch=1)
 
-    def _build_tab_security(self) -> QWidget:
+        # Initialisation par défaut avec les actions MediaTek
+        self.load_brand_actions("MEDIATEK")
+
+    def _build_category_tab(self, category_key: str) -> QWidget:
+        """Construit un conteneur d'onglet fluide prêt à recevoir une grille dynamique de boutons."""
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -437,188 +447,66 @@ class ActionTabsPanel(QFrame):
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
-
-        btn_brom_frp = ActionButton("BROM", "ERASE FRP (Google Lock)", "Effacement partition persist matérielle", COLOR_SUCCESS)
-        btn_brom_frp.clicked.connect(lambda: self.action_triggered.emit("BROM_ERASE_FRP", {}))
-
-        btn_fastboot_frp = ActionButton("FASTBOOT", "ERASE FRP (OEM)", "Commandes fastboot erase frp/config", COLOR_CYAN)
-        btn_fastboot_frp.clicked.connect(lambda: self.action_triggered.emit("FASTBOOT_ERASE_FRP", {}))
-
-        btn_samsung_frp = ActionButton("BROM", "ERASE FRP (SAMSUNG)", "Déblocage Knox persistance Samsung MTK", COLOR_PURPLE)
-        btn_samsung_frp.clicked.connect(lambda: self.action_triggered.emit("SAMSUNG_ERASE_FRP", {}))
-
-        btn_unlock_bl = ActionButton("BROM", "UNLOCK BOOTLOADER", "Déverrouille le bootloader seccfg immédiatement", COLOR_WARNING)
-        btn_unlock_bl.clicked.connect(lambda: self.action_triggered.emit("BROM_UNLOCK_BL", {}))
-
-        btn_relock_bl = ActionButton("BROM", "RELOCK BOOTLOADER", "Reverrouille la sécurité bootloader", COLOR_TEXT_MUTED)
-        btn_relock_bl.clicked.connect(lambda: self.action_triggered.emit("BROM_RELOCK_BL", {}))
-
-        btn_oem_unlock = ActionButton("FASTBOOT", "OEM UNLOCK (BL)", "fastboot flashing unlock / oem unlock", COLOR_ACCENT_BLUE)
-        btn_oem_unlock.clicked.connect(lambda: self.action_triggered.emit("FASTBOOT_OEM_UNLOCK", {}))
-
-        grid.addWidget(btn_brom_frp, 0, 0)
-        grid.addWidget(btn_fastboot_frp, 0, 1)
-        grid.addWidget(btn_samsung_frp, 1, 0)
-        grid.addWidget(btn_unlock_bl, 1, 1)
-        grid.addWidget(btn_relock_bl, 2, 0)
-        grid.addWidget(btn_oem_unlock, 2, 1)
-
         layout.addLayout(grid)
         layout.addStretch()
+
+        self._tab_grids[category_key] = grid
         return w
 
-    def _build_tab_function(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+    def load_brand_actions(self, brand_id: str, model_data: Optional[Dict[str, Any]] = None):
+        """
+        Met à jour dynamiquement tous les boutons d'actions et l'en-tête selon la marque et le modèle.
+        Chaque marque reçoit ses fonctions dédiées (ex: Samsung *#0*#, Xiaomi Mi Account, Infinix MDM).
+        """
+        from core.brands_config import get_brand_actions, get_brand_badge
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
+        self._current_brand = (brand_id or "MEDIATEK").upper()
+        if model_data is not None:
+            self._current_model = model_data
 
-        btn_reset = ActionButton("BROM", "FACTORY RESET (USERDATA)", "Formatage complet de la partition userdata", COLOR_DANGER)
-        btn_reset.clicked.connect(lambda: self.action_triggered.emit("BROM_FACTORY_RESET", {}))
+        brand_actions = get_brand_actions(self._current_brand)
 
-        btn_adb_reset = ActionButton("ADB", "FACTORY RESET (ADB)", "Réinitialisation usine via pont ADB actif", COLOR_DANGER)
-        btn_adb_reset.clicked.connect(lambda: self.action_triggered.emit("ADB_FACTORY_RESET", {}))
+        # Reconstitution des boutons dans chaque catégorie
+        for category, grid in self._tab_grids.items():
+            # Supprimer les anciens widgets
+            while grid.count() > 0:
+                item = grid.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
 
-        btn_safe_format = ActionButton("BROM", "SAFE FORMAT (CACHE WIPE)", "Effacement sans supprimer les photos/données", COLOR_SUCCESS)
-        btn_safe_format.clicked.connect(lambda: self.action_triggered.emit("BROM_SAFE_FORMAT", {}))
+            # Ajouter les boutons configurés pour cette marque
+            actions_list = brand_actions.get(category, [])
+            for idx, act in enumerate(actions_list):
+                row = idx // 2
+                col = idx % 2
+                btn = ActionButton(
+                    badge=act.get("badge", "BROM"),
+                    title=act.get("title", "ACTION"),
+                    subtitle=act.get("subtitle", ""),
+                    color_hex=act.get("color", COLOR_ACCENT_BLUE)
+                )
+                btn.clicked.connect(
+                    lambda ch, k=act["key"]: self.action_triggered.emit(
+                        k, {"brand": self._current_brand, "model": self._current_model}
+                    )
+                )
+                grid.addWidget(btn, row, col)
 
-        btn_read_info = ActionButton("BROM", "READ DEVICE INFO (HW DUMP)", "Lecture hardware code, chip ID, MEID", COLOR_ACCENT_BLUE)
-        btn_read_info.clicked.connect(lambda: self.action_triggered.emit("BROM_READ_INFO", {}))
+        # Mise à jour du bandeau de cible active
+        if self._current_model:
+            model_name = self._current_model.get("model", self._current_brand)
+            chip = self._current_model.get("chipset", "MTK")
+            self.lbl_active_target.setText(f"⚡ CIBLE ACTIVE : {model_name.upper()} ({chip})")
+        else:
+            badge = get_brand_badge(self._current_brand)
+            self.lbl_active_target.setText(f"⚡ CIBLE ACTIVE : {badge} (AUTO-DETECT)")
 
-        btn_remove_demo = ActionButton("BROM", "REMOVE DEMO / PAYJOY", "Suppression des restrictions de démonstration", COLOR_PURPLE)
-        btn_remove_demo.clicked.connect(lambda: self.action_triggered.emit("BROM_REMOVE_DEMO", {}))
-
-        btn_adb_info = ActionButton("ADB", "READ FULL SYSTEM SPECS", "Lecture version Android, build, IMEI via ADB", COLOR_CYAN)
-        btn_adb_info.clicked.connect(lambda: self.action_triggered.emit("ADB_READ_INFO", {}))
-
-        btn_reboot_fb = ActionButton("ADB", "REBOOT TO FASTBOOT", "Redémarre l'appareil en mode Fastboot via ADB", COLOR_WARNING)
-        btn_reboot_fb.clicked.connect(lambda: self.action_triggered.emit("REBOOT_FASTBOOT", {}))
-
-        btn_auth_bypass = ActionButton("BROM", "DISABLE DAA / SLA (BYPASS)", "Désactive la signature de sécurité MediaTek", COLOR_PURPLE)
-        btn_auth_bypass.clicked.connect(lambda: self.action_triggered.emit("BROM_AUTH_BYPASS", {}))
-
-        grid.addWidget(btn_reset, 0, 0)
-        grid.addWidget(btn_adb_reset, 0, 1)
-        grid.addWidget(btn_safe_format, 1, 0)
-        grid.addWidget(btn_read_info, 1, 1)
-        grid.addWidget(btn_remove_demo, 2, 0)
-        grid.addWidget(btn_adb_info, 2, 1)
-        grid.addWidget(btn_reboot_fb, 3, 0)
-        grid.addWidget(btn_auth_bypass, 3, 1)
-
-        layout.addLayout(grid)
-        layout.addStretch()
-        return w
-
-    def _build_tab_fastboot(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
-
-        btn_fb_info = ActionButton("FASTBOOT", "READ INFO (GETVAR ALL)", "Inspection des variables globales du bootloader", COLOR_CYAN)
-        btn_fb_info.clicked.connect(lambda: self.action_triggered.emit("FASTBOOT_GETVAR", {}))
-
-        btn_fb_wipe = ActionButton("FASTBOOT", "ERASE USERDATA", "fastboot erase userdata & cache", COLOR_DANGER)
-        btn_fb_wipe.clicked.connect(lambda: self.action_triggered.emit("FASTBOOT_ERASE_USERDATA", {}))
-
-        btn_fb_reboot = ActionButton("FASTBOOT", "REBOOT TO SYSTEM", "fastboot reboot", COLOR_SUCCESS)
-        btn_fb_reboot.clicked.connect(lambda: self.action_triggered.emit("REBOOT_NORMAL", {}))
-
-        btn_fb_rec = ActionButton("FASTBOOT", "REBOOT TO RECOVERY", "fastboot reboot recovery", COLOR_PURPLE)
-        btn_fb_rec.clicked.connect(lambda: self.action_triggered.emit("REBOOT_RECOVERY", {}))
-
-        btn_fb_bl = ActionButton("FASTBOOT", "REBOOT TO BOOTLOADER", "fastboot reboot-bootloader", COLOR_ACCENT_BLUE)
-        btn_fb_bl.clicked.connect(lambda: self.action_triggered.emit("REBOOT_FASTBOOT", {}))
-
-        btn_fb_oem = ActionButton("FASTBOOT", "OEM FB_MODE CLEAR", "Suppression des drapeaux fabricant", COLOR_WARNING)
-        btn_fb_oem.clicked.connect(lambda: self.action_triggered.emit("FASTBOOT_OEM_CLEAR", {}))
-
-        grid.addWidget(btn_fb_info, 0, 0)
-        grid.addWidget(btn_fb_wipe, 0, 1)
-        grid.addWidget(btn_fb_reboot, 1, 0)
-        grid.addWidget(btn_fb_rec, 1, 1)
-        grid.addWidget(btn_fb_bl, 2, 0)
-        grid.addWidget(btn_fb_oem, 2, 1)
-
-        layout.addLayout(grid)
-        layout.addStretch()
-        return w
-
-    def _build_tab_recovery(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
-
-        btn_rec_info = ActionButton("RECOVERY", "READ RECOVERY SPECS", "Lecture statut sideload et OS version", COLOR_CYAN)
-        btn_rec_info.clicked.connect(lambda: self.action_triggered.emit("RECOVERY_READ_INFO", {}))
-
-        btn_rec_format = ActionButton("SIDELOAD", "FACTORY RESET / WIPE DATA", "Formatage via script de récupération", COLOR_DANGER)
-        btn_rec_format.clicked.connect(lambda: self.action_triggered.emit("RECOVERY_FORMAT", {}))
-
-        btn_rec_norm = ActionButton("RECOVERY", "REBOOT TO NORMAL SYSTEM", "Redémarrage propre dans Android", COLOR_SUCCESS)
-        btn_rec_norm.clicked.connect(lambda: self.action_triggered.emit("REBOOT_NORMAL", {}))
-
-        btn_rec_boot = ActionButton("RECOVERY", "REBOOT TO BOOTLOADER", "Redémarrage direct vers Fastboot", COLOR_ACCENT_BLUE)
-        btn_rec_boot.clicked.connect(lambda: self.action_triggered.emit("REBOOT_FASTBOOT", {}))
-
-        grid.addWidget(btn_rec_info, 0, 0)
-        grid.addWidget(btn_rec_format, 0, 1)
-        grid.addWidget(btn_rec_norm, 1, 0)
-        grid.addWidget(btn_rec_boot, 1, 1)
-
-        layout.addLayout(grid)
-        layout.addStretch()
-        return w
-
-    def _build_tab_meta(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
-
-        btn_meta_info = ActionButton("META", "READ FACTORY INFO", "Lecture données d'usine, IMEI, Baseband", COLOR_PURPLE)
-        btn_meta_info.clicked.connect(lambda: self.action_triggered.emit("META_READ_INFO", {}))
-
-        btn_meta_reset = ActionButton("META", "FACTORY RESET (META)", "Remise à zéro sans perte de calibration", COLOR_DANGER)
-        btn_meta_reset.clicked.connect(lambda: self.action_triggered.emit("META_FACTORY_RESET", {}))
-
-        btn_meta_nv = ActionButton("META", "BACKUP NVRAM / NVDATA", "Sauvegarde de secours des partitions réseau", COLOR_WARNING)
-        btn_meta_nv.clicked.connect(lambda: self.action_triggered.emit("META_BACKUP_NV", {}))
-
-        btn_meta_reboot = ActionButton("META", "REBOOT TO NORMAL", "Sortie du mode Meta et redémarrage Android", COLOR_SUCCESS)
-        btn_meta_reboot.clicked.connect(lambda: self.action_triggered.emit("META_REBOOT_NORMAL", {}))
-
-        grid.addWidget(btn_meta_info, 0, 0)
-        grid.addWidget(btn_meta_reset, 0, 1)
-        grid.addWidget(btn_meta_nv, 1, 0)
-        grid.addWidget(btn_meta_reboot, 1, 1)
-
-        layout.addLayout(grid)
-        layout.addStretch()
-        return w
+        self.lbl_mode_pill.setText(self._current_brand)
 
     def update_selected_model(self, model_data: Dict[str, Any]):
-        name = model_data.get("model", "MediaTek Universal")
-        chip = model_data.get("chipset", "")
-        self.lbl_active_target.setText(f"⚡ CIBLE ACTIVE : {name.upper()} ({chip})")
+        brand = model_data.get("brand_id", self._current_brand)
+        self.load_brand_actions(brand, model_data)
 
 
 # =====================================================================
@@ -724,7 +612,7 @@ class ConnectionManagerPanel(QFrame):
         self.btn_rescan.clicked.connect(self.rescan_requested.emit)
         layout.addWidget(self.btn_rescan)
 
-        # ── 4. Aide-mémoire d'atelier (Texte haut contraste) ──────────
+        # ── 4. Aide-mémoire d'atelier (Texte haut contraste dynamique) ──────────
         guide_box = QFrame()
         guide_box.setObjectName("guideBox")
         guide_box.setStyleSheet(f"""
@@ -734,28 +622,39 @@ class ConnectionManagerPanel(QFrame):
                 border-radius: 4px;
             }}
         """)
-        g_layout = QVBoxLayout(guide_box)
-        g_layout.setContentsMargins(8, 6, 8, 6)
-        g_layout.setSpacing(3)
+        self.guide_layout = QVBoxLayout(guide_box)
+        self.guide_layout.setContentsMargins(8, 6, 8, 6)
+        self.guide_layout.setSpacing(3)
 
-        lbl_guide_title = QLabel("INSTRUCTIONS D'ATELIER :")
-        lbl_guide_title.setStyleSheet(f"color: {COLOR_WARNING}; font-size: 9px; font-weight: bold;")
-        g_layout.addWidget(lbl_guide_title)
+        self.lbl_guide_title = QLabel("INSTRUCTIONS D'ATELIER (MEDIATEK) :")
+        self.lbl_guide_title.setStyleSheet(f"color: {COLOR_WARNING}; font-size: 9px; font-weight: bold;")
+        self.guide_layout.addWidget(self.lbl_guide_title)
+        self._tip_labels: List[QLabel] = []
 
-        tips = [
-            "• BROM MediaTek : Éteindre + Vol- + Câble",
-            "• Fastboot Mode : Éteindre + Vol- & Power",
-            "• Samsung MTK : Éteindre + Vol+ & Vol- + Câble",
-            "• Pilotes requis : MediaTek USB VCOM Driver",
-        ]
+        layout.addWidget(guide_box)
+        layout.addStretch()
+
+        # Chargement des instructions par défaut
+        self.update_workshop_instructions("MEDIATEK")
+
+    def update_workshop_instructions(self, brand_id: str, custom_tips: Optional[List[str]] = None):
+        """Met à jour dynamiquement les conseils d'atelier selon la marque sélectionnée."""
+        from core.brands_config import get_brand_instructions, get_brand_config
+        tips = custom_tips or get_brand_instructions(brand_id)
+        brand_name = get_brand_config(brand_id).get("name", brand_id)
+        self.lbl_guide_title.setText(f"INSTRUCTIONS D'ATELIER ({brand_name.upper()}) :")
+
+        for lbl in self._tip_labels:
+            self.guide_layout.removeWidget(lbl)
+            lbl.deleteLater()
+        self._tip_labels.clear()
+
         for t in tips:
             lbl_tip = QLabel(t)
             lbl_tip.setWordWrap(True)
             lbl_tip.setStyleSheet("color: #cbd5e1; font-size: 10px;")
-            g_layout.addWidget(lbl_tip)
-
-        layout.addWidget(guide_box)
-        layout.addStretch()
+            self.guide_layout.addWidget(lbl_tip)
+            self._tip_labels.append(lbl_tip)
 
     def _create_status_row(self, title: str, default_val: str) -> Dict[str, Any]:
         h_layout = QHBoxLayout()
