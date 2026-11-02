@@ -1,0 +1,44 @@
+; ==============================================================================
+; MediaTek BootROM WinUSB / LibUSB Direct Access Driver Package
+; Utilisé par PyUSB / Optima MTK Tool pour intercepter le BootROM en < 3 secondes
+; ==============================================================================
+[Version]
+Signature = "$Windows NT$"
+Class     = USBDevice
+ClassGUID = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider  = %ProviderName%
+DriverVer = 11/01/2023, 1.0.0.1
+CatalogFile = mtk_brom_filter.cat
+
+[Manufacturer]
+%ProviderName% = MediaTek, NTx86, NTamd64
+
+[MediaTek.NTx86]
+%DeviceName_0003% = USB_Install, USB\VID_0E8D&PID_0003
+%DeviceName_0001% = USB_Install, USB\VID_0E8D&PID_0001
+%DeviceName_0002% = USB_Install, USB\VID_0E8D&PID_0002
+
+[MediaTek.NTamd64]
+%DeviceName_0003% = USB_Install, USB\VID_0E8D&PID_0003
+%DeviceName_0001% = USB_Install, USB\VID_0E8D&PID_0001
+%DeviceName_0002% = USB_Install, USB\VID_0E8D&PID_0002
+
+[USB_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = Dev_AddReg
+
+[Dev_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{A5DCBF10-6530-11D2-901F-00C04FB951ED}"
+
+[Strings]
+ProviderName       = "MediaTek LibUSB Filter"
+DeviceName_0003    = "MediaTek MTK BootROM USB (LibUSB / WinUSB Direct Filter)"
+DeviceName_0001    = "MediaTek USB BootROM Port (LibUSB Filter)"
+DeviceName_0002    = "MediaTek Download BootROM Port (LibUSB Filter)"

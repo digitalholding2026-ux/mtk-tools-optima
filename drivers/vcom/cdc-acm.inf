@@ -1,0 +1,53 @@
+; ==============================================================================
+; MediaTek Inc. DA USB VCOM / Preloader Driver Package (Optima MTK Tool)
+; ==============================================================================
+[Version]
+Signature="$Windows NT$"
+Class=Ports
+ClassGuid={4D36E978-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=10/15/2023, 3.0.1504.0
+CatalogFile=cdc-acm.cat
+
+[Manufacturer]
+%ProviderName%=MediaTek,NTx86,NTamd64
+
+[MediaTek.NTx86]
+%MTK_PRELOADER%   = Usb2Com, USB\VID_0E8D&PID_2000
+%MTK_DA_VCOM%     = Usb2Com, USB\VID_0E8D&PID_2001
+%MTK_BROM_COM%    = Usb2Com, USB\VID_0E8D&PID_0003
+%MTK_DEBUG_COM%   = Usb2Com, USB\VID_0E8D&PID_2008
+
+[MediaTek.NTamd64]
+%MTK_PRELOADER%   = Usb2Com, USB\VID_0E8D&PID_2000
+%MTK_DA_VCOM%     = Usb2Com, USB\VID_0E8D&PID_2001
+%MTK_BROM_COM%    = Usb2Com, USB\VID_0E8D&PID_0003
+%MTK_DEBUG_COM%   = Usb2Com, USB\VID_0E8D&PID_2008
+
+[Usb2Com.NT]
+Include=mdmcpq.inf
+Needs=FakeModemCopyFileSection
+AddReg=Usb2Com.NT.AddReg
+
+[Usb2Com.NT.AddReg]
+HKR,,DevLoader,,*ntkern
+HKR,,NTMPDriver,,usbser.sys
+HKR,,EnumPropPages32,,"MsPorts.dll,SerialPortPropPageProvider"
+
+[Usb2Com.NT.Services]
+AddService=usbser, 0x00000002, Usb2Com.Service_Inst
+
+[Usb2Com.Service_Inst]
+DisplayName=%Serial.SvcDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\usbser.sys
+
+[Strings]
+ProviderName       = "MediaTek Inc."
+MTK_PRELOADER      = "MediaTek Preloader USB VCOM Port"
+MTK_DA_VCOM        = "MediaTek DA USB VCOM Port"
+MTK_BROM_COM       = "MediaTek USB Port (BootROM VCOM)"
+MTK_DEBUG_COM      = "MediaTek Debug Serial Port"
+Serial.SvcDesc     = "Microsoft USB Serial Driver (usbser.sys)"
