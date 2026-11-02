@@ -480,7 +480,7 @@ class ActionTabsPanel(QFrame):
         btn_reset = ActionButton("BROM", "FACTORY RESET (USERDATA)", "Formatage complet de la partition userdata", COLOR_DANGER)
         btn_reset.clicked.connect(lambda: self.action_triggered.emit("BROM_FACTORY_RESET", {}))
 
-        btn_adb_reset = ActionButton("ADB", "FACTORY RESET (ADB WIPE)", "Réinitialisation usine via pont ADB actif", COLOR_DANGER)
+        btn_adb_reset = ActionButton("ADB", "FACTORY RESET (ADB)", "Réinitialisation usine via pont ADB actif", COLOR_DANGER)
         btn_adb_reset.clicked.connect(lambda: self.action_triggered.emit("ADB_FACTORY_RESET", {}))
 
         btn_safe_format = ActionButton("BROM", "SAFE FORMAT (CACHE WIPE)", "Effacement sans supprimer les photos/données", COLOR_SUCCESS)

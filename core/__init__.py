@@ -13,10 +13,13 @@ from core.init_env import (
     get_environment_diagnostics,
 )
 from core.actions import (
-    read_device_info, factory_reset, erase_frp, reboot_device,
+    read_device_info, factory_reset, factory_reset_adb, erase_frp, reboot_device,
     reboot_to_fastboot, unlock_bootloader, relock_bootloader, ActionResult
 )
-from core.detector import DeviceDetector, JITConnectionWorker, ConnectedDevice, DeviceMode, reset_adb_server
+from core.detector import (
+    DeviceDetector, JITConnectionWorker, ConnectedDevice, DeviceMode,
+    reset_adb_server, get_adb_path as get_detector_adb_path
+)
 from core.mtk_communication import MTKCommunication
 from core.usb_reset import perform_hardware_wake, is_admin
 from core.usb_scanner import UsbScanner, scan_mtk_devices, find_mtk_device, HAS_PYUSB
@@ -35,6 +38,7 @@ __all__ = [
     # Actions MTK
     "read_device_info",
     "factory_reset",
+    "factory_reset_adb",
     "erase_frp",
     "reboot_device",
     "reboot_to_fastboot",

@@ -224,6 +224,48 @@ KEYWORDS_NORMAL = [
 
 
 # =====================================================================
+# Localisation dynamique de l'exécutable ADB
+# =====================================================================
+
+def get_adb_path() -> str:
+    """
+    Localise l'exécutable ADB local (bin/adb.exe) de manière ciblée au lieu de la commande globale.
+    Priorité absolue sur le dossier local bin/adb.exe de l'application.
+    """
+    if getattr(sys, 'frozen', False):
+        # Mode exécutable compilé (PyInstaller)
+        base_path = os.path.dirname(sys.executable)
+        candidates = [
+            os.path.join(base_path, "bin", "adb.exe"),
+            os.path.join(getattr(sys, '_MEIPASS', ''), "bin", "adb.exe"),
+            os.path.join(base_path, "_internal", "bin", "adb.exe"),
+        ]
+        for c in candidates:
+            if c and os.path.exists(c):
+                return os.path.abspath(c)
+    else:
+        # Mode script de développement
+        base_path = os.path.abspath(os.path.dirname(__file__))
+        # Si le fichier est dans core/, remonter à la racine du projet
+        if not os.path.exists(os.path.join(base_path, "bin", "adb.exe")):
+            parent = os.path.dirname(base_path)
+            if os.path.exists(os.path.join(parent, "bin", "adb.exe")):
+                base_path = parent
+
+    # Pointe vers bin/adb.exe
+    adb_path = os.path.join(base_path, "bin", "adb.exe")
+    if not os.path.exists(adb_path):
+        # Repli de secours sur tools/ ou adb global
+        fallback_tools = os.path.join(base_path, "tools", "adb.exe")
+        if os.path.exists(fallback_tools):
+            return os.path.abspath(fallback_tools)
+        adb_path = "adb"  # Fallback global si introuvable
+    else:
+        adb_path = os.path.abspath(adb_path)
+    return adb_path
+
+
+# =====================================================================
 # Nettoyage et initialisation autonome du serveur ADB
 # =====================================================================
 
@@ -231,34 +273,14 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
     """
     Nettoie et réinitialise proprement le serveur ADB au démarrage de l'outil.
     Exécute de façon robuste et masquée (CREATE_NO_WINDOW sous Windows) :
-      subprocess.run(["adb", "kill-server"], capture_output=True, timeout=2)
-      subprocess.run(["adb", "start-server"], capture_output=True, timeout=2)
+      subprocess.run([get_adb_path(), "kill-server"], capture_output=True, timeout=2)
+      subprocess.run([get_adb_path(), "start-server"], capture_output=True, timeout=2)
 
     Garantit que le daemon ADB est propre, réactif et actif dès le lancement,
     rendant Optima MTK Tool totalement autonome sans dépendre d'un outil tiers.
     """
     if not adb_bin:
-        try:
-            from core.init_env import get_adb_path
-            adb_bin = get_adb_path()
-        except Exception:
-            adb_bin = None
-
-    if not adb_bin:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        embedded_candidates = [
-            os.path.join(base_dir, "tools", "adb.exe"),
-            os.path.join(base_dir, "tools", "adb"),
-            os.path.join(base_dir, "platform-tools", "adb.exe"),
-            os.path.join(base_dir, "assets", "bin", "adb.exe"),
-            os.path.join(base_dir, "bin", "adb.exe"),
-        ]
-        for path in embedded_candidates:
-            if os.path.isfile(path) and (sys.platform != "win32" or os.access(path, os.X_OK)):
-                adb_bin = path
-                break
-        if not adb_bin:
-            adb_bin = shutil.which("adb") or shutil.which("adb.exe") or "adb"
+        adb_bin = get_adb_path()
 
     creationflags = 0
     startupinfo = None
@@ -397,54 +419,9 @@ class DeviceDetector(QThread):
 
         return "fastboot"  # Fallback sur la commande système
 
-    def _find_adb_executable(self) -> Optional[str]:
-        """
-        Localise l'exécutable adb dans bin/, tools/, PATH ou Android SDK.
-        Vérifie prioritairement le dossier 'bin/' et 'tools/' embarqué dans le projet.
-        """
-        try:
-            from core.init_env import get_adb_path
-            adb_path = get_adb_path()
-            if adb_path:
-                return adb_path
-        except Exception:
-            pass
-
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        candidates = [
-            os.path.join(base_dir, "tools", "adb.exe"),
-            os.path.join(base_dir, "tools", "adb"),
-            os.path.join(base_dir, "platform-tools", "adb.exe"),
-            os.path.join(base_dir, "assets", "bin", "adb.exe"),
-            os.path.join(base_dir, "bin", "adb.exe"),
-        ]
-        for path in candidates:
-            if os.path.isfile(path) and (sys.platform != "win32" or os.access(path, os.X_OK)):
-                return path
-
-        found = shutil.which("adb") or shutil.which("adb.exe")
-        if found:
-            return found
-
-        local_app_data = os.environ.get("LOCALAPPDATA", "")
-        user_profile = os.environ.get("USERPROFILE", "")
-        sdk_candidates = []
-        if local_app_data:
-            sdk_candidates.append(os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "adb.exe"))
-        if user_profile:
-            sdk_candidates.append(os.path.join(user_profile, "AppData", "Local", "Android", "Sdk", "platform-tools", "adb.exe"))
-
-        sdk_candidates.extend([
-            r"C:\adb\adb.exe",
-            r"C:\platform-tools\adb.exe",
-            r"C:\Program Files\Android\platform-tools\adb.exe",
-            r"C:\Program Files (x86)\Android\platform-tools\adb.exe",
-        ])
-        for path in sdk_candidates:
-            if os.path.isfile(path):
-                return path
-
-        return "adb"
+    def _find_adb_executable(self) -> str:
+        """Localise l'exécutable local bin/adb.exe via get_adb_path()."""
+        return get_adb_path()
 
     # -----------------------------------------------------------------
     # Cycle de vie du thread
@@ -615,12 +592,12 @@ class DeviceDetector(QThread):
 
         # 3. Analyse ADB uniquement si pas encore de BROM ni Fastboot
         #    → sépare ADB "actif" de "unauthorized" (USB Normal)
-        if not results:
+        if not any(d.mode in (DeviceMode.BROM, DeviceMode.FASTBOOT) for d in results):
             try:
                 adb_dev, usb_normal_dev = self._scan_adb_detailed()
                 if adb_dev:
                     results.append(adb_dev)
-                elif usb_normal_dev:
+                elif usb_normal_dev and not results:
                     results.append(usb_normal_dev)
             except Exception:
                 pass
@@ -912,12 +889,12 @@ class DeviceDetector(QThread):
     def _execute_adb_devices(self) -> Optional[str]:
         """
         Exécute 'adb devices' de façon robuste selon les spécifications :
-        - subprocess.run([adb_bin, "devices"], capture_output=True, text=True, timeout=2)
+        - subprocess.run([get_adb_path(), "devices"], capture_output=True, text=True, timeout=2)
         - Évite le blocage indéfini si le serveur ADB ne répond pas
         - Masque la fenêtre cmd console sous Windows (CREATE_NO_WINDOW / SW_HIDE)
         - Capture proprement FileNotFoundError, TimeoutExpired, etc.
         """
-        adb_bin = self._find_adb_executable() or "adb"
+        adb_bin = get_adb_path()
         cmd = [adb_bin, "devices"]
 
         creationflags = 0

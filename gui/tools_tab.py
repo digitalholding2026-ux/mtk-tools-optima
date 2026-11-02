@@ -68,6 +68,13 @@ class ToolsOperationWorker(QThread):
                 self.progress.emit(100)
                 self.finished.emit(res.success, res.message)
 
+            elif self.action_type == "factory_reset_adb":
+                from core.actions import factory_reset_adb
+                self.progress.emit(25)
+                res = factory_reset_adb(device_identifier=target_id, log_callback=_log_cb)
+                self.progress.emit(100)
+                self.finished.emit(res.success, res.message)
+
             elif self.action_type == "reboot":
                 from core.actions import reboot_device
                 self.progress.emit(30)
@@ -424,9 +431,9 @@ class ToolsTab(QWidget):
         reply = QMessageBox.warning(
             self,
             "Confirmation Factory Reset via ADB",
-            "<b>EFFACEMENT DES DONNÉES VIA ADB</b><br><br>"
-            "Cette action enverra la commande de réinitialisation d'usine à l'appareil connecté via ADB.<br>"
-            "Toutes les données utilisateur seront effacées.<br><br>"
+            "<b>ATTENTION : CETTE ACTION EFFACERA TOUTES LES DONNÉES DE L'APPAREIL !</b><br><br>"
+            "Cette commande va envoyer l'ordre de réinitialisation d'usine via le pont ADB.<br>"
+            "Toutes les données utilisateur (photos, contacts, applications) seront effacées.<br><br>"
             "Voulez-vous continuer ?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
@@ -438,11 +445,41 @@ class ToolsTab(QWidget):
         if hasattr(main_win, "run_action_with_assistant"):
             main_win.run_action_with_assistant(
                 action_name="Factory Reset (ADB)",
-                operation_func=self._execute_factory_reset,
-                target_modes=[DeviceMode.ADB, DeviceMode.NORMAL]
+                operation_func=self._execute_adb_factory_reset,
+                target_modes=[DeviceMode.ADB, DeviceMode.NORMAL],
+                custom_instructions="1. Allumez le téléphone normalement.\n2. Activez le Débogage USB dans les paramètres développeur.\n3. Branchez le câble USB et autorisez le débogage sur l'écran."
             )
         else:
-            self._execute_factory_reset(self.current_device)
+            self._execute_adb_factory_reset(self.current_device)
+
+    def _execute_adb_factory_reset(self, device: Optional[ConnectedDevice] = None):
+        self.btn_factory_reset.setEnabled(False)
+        self.btn_adb_factory_reset.setEnabled(False)
+        self.progress_bar.setValue(15)
+        self.txt_log.clear()
+
+        self.worker = ToolsOperationWorker("factory_reset_adb", device)
+        self.worker.progress.connect(self.progress_bar.setValue)
+        self.worker.log.connect(self._on_worker_log)
+        self.worker.finished.connect(self._on_adb_factory_reset_finished)
+        self.worker.start()
+
+    def _on_adb_factory_reset_finished(self, success: bool, message: str):
+        self.btn_factory_reset.setEnabled(True)
+        self.btn_adb_factory_reset.setEnabled(True)
+        if success:
+            self.progress_bar.setValue(100)
+            QMessageBox.information(
+                self,
+                "Factory Reset (ADB) Terminé",
+                f"<b>Succès :</b> {message}<br><br>Le smartphone redémarre avec les paramètres d'usine d'origine."
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "Échec du Factory Reset (ADB)",
+                f"L'opération a échoué :<br><br><b>{message}</b>"
+            )
 
     def _execute_factory_reset(self, device: ConnectedDevice):
         self.btn_factory_reset.setEnabled(False)

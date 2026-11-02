@@ -29,7 +29,7 @@ from gui.device_status_widget import DeviceStatusBanner
 from core.detector import DeviceDetector, ConnectedDevice, DeviceMode
 from core.mtk_communication import MTKCommunication
 from core.actions import (
-    erase_frp, factory_reset, read_device_info, reboot_device,
+    erase_frp, factory_reset, factory_reset_adb, read_device_info, reboot_device,
     unlock_bootloader, relock_bootloader, ActionResult
 )
 
@@ -141,6 +141,9 @@ class MainWindow(QMainWindow):
         act_rescan = menu_tools.addAction("Forcer l'analyse USB (F5)")
         act_rescan.setShortcut("F5")
         act_rescan.triggered.connect(self._on_rescan_clicked)
+        menu_tools.addSeparator()
+        act_adb_reset = menu_tools.addAction("📱 Factory Reset (ADB)")
+        act_adb_reset.triggered.connect(lambda: self._handle_action_triggered("ADB_FACTORY_RESET", {}))
         menu_tools.addSeparator()
         act_clear = menu_tools.addAction("Effacer la console")
         act_clear.triggered.connect(self.log_panel.clear_logs)
@@ -328,6 +331,27 @@ class MainWindow(QMainWindow):
                     target_modes=[DeviceMode.BROM]
                 )
 
+        elif action_key == "ADB_FACTORY_RESET":
+            reply = QMessageBox.warning(
+                self,
+                "Confirmation Factory Reset (ADB)",
+                "<b>ATTENTION : CETTE ACTION EFFACERA TOUTES LES DONNÉES DE L'APPAREIL !</b><br><br>"
+                f"Cible : {model_name}<br><br>"
+                "Cette commande va réinitialiser le smartphone aux paramètres d'usine via le pont ADB.<br>"
+                "• Photos, musiques, fichiers personnels et applications seront supprimés.<br>"
+                "• Les comptes et verrouillages écran seront effacés.<br><br>"
+                "Êtes-vous certain de vouloir continuer ?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.run_action_with_assistant(
+                    action_name="[ADB] Factory Reset",
+                    operation_func=self._execute_adb_factory_reset_action,
+                    target_modes=[DeviceMode.ADB, DeviceMode.NORMAL],
+                    custom_instructions="1. Allumez le téléphone normalement dans Android.\n2. Activez le Débogage USB dans les Options de développement.\n3. Branchez le câble USB et autorisez le débogage sur l'écran."
+                )
+
         elif action_key == "BROM_SAFE_FORMAT":
             self.run_action_with_assistant(
                 action_name="[BROM] Safe Format",
@@ -436,6 +460,28 @@ class MainWindow(QMainWindow):
             reboot_device(current.mode, target_id, target_reboot=target, log_callback=self._append_log)
         else:
             self._append_log(f"[WARNING] Aucun appareil connecté pour redémarrage vers {target}.", "warning")
+
+    def _execute_adb_factory_reset_action(self, dev: Optional[ConnectedDevice] = None):
+        """Exécute la réinitialisation d'usine via ADB avec journalisation et boîte de dialogue de retour."""
+        device_id = None
+        if dev:
+            device_id = dev.serial_number or dev.identifier
+        self._append_log("[+] Lancement du Factory Reset via le pont ADB...", "info")
+        res = factory_reset_adb(device_identifier=device_id, log_callback=self._append_log)
+        if res.success:
+            self._append_log(f"[SUCCESS] {res.message}", "success")
+            QMessageBox.information(
+                self,
+                "Factory Reset (ADB) Réussi",
+                f"<b>Succès :</b> {res.message}<br><br>L'appareil a reçu l'instruction et redémarre avec les paramètres d'usine d'origine."
+            )
+        else:
+            self._append_log(f"[ERROR] {res.message}", "error")
+            QMessageBox.critical(
+                self,
+                "Échec du Factory Reset (ADB)",
+                f"L'opération a échoué :<br><br><b>{res.message}</b>"
+            )
 
     def run_action_with_assistant(
         self,

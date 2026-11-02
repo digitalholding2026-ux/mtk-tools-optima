@@ -45,6 +45,17 @@ class ActionResult:
     def __bool__(self) -> bool:
         return self.success
 
+    def __iter__(self):
+        yield self.success
+        yield self.message
+
+    def __getitem__(self, index):
+        if index == 0:
+            return self.success
+        elif index == 1:
+            return self.message
+        raise IndexError("ActionResult index out of range (0=success, 1=message)")
+
 
 # =====================================================================
 # Table de correspondance des chipsets MediaTek (HW Code -> Modèle)
@@ -150,7 +161,15 @@ def _run_fastboot_cmd(cmd_args: List[str], timeout: float = 15.0) -> Tuple[int, 
 # =====================================================================
 
 def find_adb() -> Optional[str]:
-    """Trouve l'exécutable adb sur le système ou dans les dossiers binaires embarqués."""
+    """Trouve l'exécutable local bin/adb.exe en priorité absolue."""
+    try:
+        from core.detector import get_adb_path
+        adb_path = get_adb_path()
+        if adb_path:
+            return adb_path
+    except Exception:
+        pass
+
     try:
         from core.init_env import get_adb_path
         adb_path = get_adb_path()
@@ -490,13 +509,114 @@ def read_device_info(
 # =====================================================================
 
 def factory_reset_adb(
-    device_identifier: str,
+    device_identifier: Optional[str] = None,
     log_callback: Optional[Callable[[str, str], None]] = None
 ) -> ActionResult:
     """
-    Exécute explicitement la réinitialisation d'usine via le pont ADB.
+    Tente de réinitialiser l'appareil aux paramètres d'usine via ADB.
+    Méthode 1 : Redémarrage direct en mode recovery avec commande wipe data.
+    Méthode 2 : Utilisation de la commande shell recovery wipe_data si supporté.
+
+    Retourne un ActionResult (déballable en tuple: success, message).
     """
-    return factory_reset(mode=DeviceMode.ADB, device_identifier=device_identifier, log_callback=log_callback)
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    adb_bin = find_adb() or "adb"
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    try:
+        # Étape 1 : S'assurer qu'un appareil est connecté et autorisé
+        _log("[+] Vérification de l'état des appareils via ADB ('adb devices')...", "info")
+        check = subprocess.run(
+            [adb_bin, "devices"],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=creationflags,
+            startupinfo=startupinfo
+        )
+
+        lines = [line.strip() for line in check.stdout.splitlines() if line.strip() and not line.startswith("List of devices") and not line.startswith("*")]
+
+        authorized_devices = []
+        unauthorized_count = 0
+        for l in lines:
+            parts = l.split()
+            if len(parts) >= 2:
+                if parts[1] == "device":
+                    authorized_devices.append(parts[0])
+                elif parts[1] in ("unauthorized", "offline"):
+                    unauthorized_count += 1
+
+        if not authorized_devices:
+            if unauthorized_count > 0:
+                msg_err = "Appareil ADB détecté mais non autorisé. Veuillez valider le débogage USB sur l'écran du smartphone."
+            else:
+                msg_err = "Aucun appareil ADB valide ou autorisé détecté."
+            _log(f"[ERROR] {msg_err}", "error")
+            return ActionResult(False, msg_err)
+
+        clean_id = str(device_identifier or "").replace("ADB:", "").strip()
+        target_serial = clean_id if clean_id in authorized_devices else authorized_devices[0]
+        adb_target = [adb_bin, "-s", target_serial] if target_serial else [adb_bin]
+
+        _log(f"[+] Appareil ADB sélectionné : {target_serial}", "info")
+
+        # Étape 2 : Redémarrage vers le recovery pour déclencher le wipe, ou effacement direct
+        # Option A (Standard) : adb reboot recovery (l'utilisateur effectue le wipe ou l'automate l'envoie)
+        # Option B : adb shell wipe data
+        _log("[+] Tentative d'effacement direct via 'adb shell wipe data'...", "info")
+        result = subprocess.run(
+            adb_target + ["shell", "wipe", "data"],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=creationflags,
+            startupinfo=startupinfo
+        )
+
+        res_text = (result.stdout + "\n" + (result.stderr or "")).strip()
+        if "not found" in res_text.lower() or "permission denied" in res_text.lower() or "error" in res_text.lower():
+            raise subprocess.CalledProcessError(1, adb_target + ["shell", "wipe", "data"], output=res_text)
+
+        _log("[SUCCESS] Commande de réinitialisation d'usine envoyée avec succès.", "success")
+        return ActionResult(True, "Commande de réinitialisation d'usine envoyée avec succès.", raw_output=res_text)
+
+    except subprocess.CalledProcessError as e:
+        # Fallback : Redémarrer en recovery pour laisser l'appareil faire le wipe
+        try:
+            _log("[!] Effacement direct non supporté. Basculement en mode Recovery ('adb reboot recovery')...", "warning")
+            cmd_reboot = [adb_bin]
+            if "target_serial" in locals() and target_serial:
+                cmd_reboot.extend(["-s", target_serial])
+            cmd_reboot.extend(["reboot", "recovery"])
+
+            sub_proc = subprocess.run(
+                cmd_reboot,
+                capture_output=True,
+                text=True,
+                check=True,
+                creationflags=creationflags,
+                startupinfo=startupinfo
+            )
+            out_reboot = (sub_proc.stdout + "\n" + (sub_proc.stderr or "")).strip()
+            _log("[SUCCESS] Appareil basculé en Recovery pour effectuer le wipe manuellement ou automatiquement.", "success")
+            return ActionResult(True, "Appareil basculé en Recovery pour effectuer le wipe manuellement ou automatiquement.", raw_output=out_reboot)
+        except Exception as sub_e:
+            _log(f"[ERROR] Échec de la réinitialisation : {str(sub_e)}", "error")
+            return ActionResult(False, f"Échec de la réinitialisation : {str(sub_e)}")
+
+    except Exception as ex:
+        _log(f"[ERROR] Erreur critique : {str(ex)}", "error")
+        return ActionResult(False, f"Erreur critique : {str(ex)}")
 
 
 def factory_reset(
@@ -599,49 +719,7 @@ def factory_reset(
     # 2.3 Mode ADB / NORMAL (Réinitialisation d'usine via pont ADB)
     # -------------------------------------------------------------
     elif "ADB" in mode_str or "NORMAL" in mode_str:
-        _log(f"[+] Exécution du Factory Reset via le pont ADB pour {device_identifier}...", "info")
-        target_args = ["-s", device_id] if device_id else []
-
-        # Tentative 1 : Commande shell recovery --wipe_data
-        _log("[+] Envoi de l'instruction ADB shell 'recovery --wipe_data'...", "info")
-        ret1, out1, err1 = _run_adb_cmd(target_args + ["shell", "recovery", "--wipe_data"], timeout=10.0)
-        out_combined1 = (err1 + "\n" + out1).strip()
-
-        if ret1 == 0 and "error" not in out_combined1.lower():
-            _log("[SUCCESS] Instruction wipe_data envoyée avec succès via ADB.", "success")
-            return ActionResult(success=True, message="Factory Reset initié via ADB (Recovery Wipe).")
-
-        # Tentative 2 : Commande shell wipe data
-        _log("[!] Méthode 1 non prise en charge. Envoi de 'adb shell wipe data'...", "warning")
-        ret2, out2, err2 = _run_adb_cmd(target_args + ["shell", "wipe", "data"], timeout=10.0)
-        out_combined2 = (err2 + "\n" + out2).strip()
-
-        if ret2 == 0 and "not found" not in out_combined2.lower() and "error" not in out_combined2.lower():
-            _log("[SUCCESS] Formatage des données initié via ADB shell wipe.", "success")
-            return ActionResult(success=True, message="Factory Reset réussi via ADB wipe.")
-
-        # Tentative 3 : Intent Master Clear (android.intent.action.MASTER_CLEAR / FACTORY_RESET)
-        _log("[!] Tentative via broadcast Intent Android (MASTER_CLEAR / FACTORY_RESET)...", "info")
-        ret3, out3, err3 = _run_adb_cmd(
-            target_args + ["shell", "am", "broadcast", "-a", "android.intent.action.MASTER_CLEAR"],
-            timeout=8.0
-        )
-        if ret3 != 0:
-            _run_adb_cmd(
-                target_args + ["shell", "am", "broadcast", "-a", "com.google.android.gms.recovery.WIPE_DATA"],
-                timeout=8.0
-            )
-
-        # Tentative 4 : Redémarrage forcé en mode Recovery pour purger les données
-        _log("[+] Envoi du signal de redémarrage en mode Recovery (reboot recovery)...", "info")
-        ret4, out4, err4 = _run_adb_cmd(target_args + ["reboot", "recovery"], timeout=10.0)
-
-        if ret4 == 0:
-            _log("[SUCCESS] L'appareil redémarre en mode Recovery pour finaliser l'effacement des données.", "success")
-            return ActionResult(success=True, message="Appareil redémarré en mode Recovery pour le Factory Reset.")
-
-        _log(f"[ERROR] Échec de la réinitialisation via ADB : {out_combined1}", "error")
-        return ActionResult(success=False, message="Échec de l'exécution du Factory Reset via ADB.")
+        return factory_reset_adb(device_identifier=device_id, log_callback=log_callback)
 
     # -------------------------------------------------------------
     # 2.4 Mode non supporté
