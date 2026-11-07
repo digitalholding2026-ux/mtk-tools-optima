@@ -1,25 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 gui/license_dialog.py — Fenêtre d'activation de licence offline Optima MTK Tool.
-Affiche une boîte modale permettant de saisir un token d'activation.
-En cas de succès, la licence est enregistrée (license.json).
+Interface épurée : saisie du token + activation. Les tokens valides sont lus
+depuis un fichier externe (tokens.json/tokens.txt) à la racine du projet.
 """
 
 import os
-import sys
 import traceback
 from datetime import datetime
 from typing import Optional
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QFrame, QMessageBox, QApplication
+    QPushButton, QFrame, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from core.license_manager import (
-    LicenseManager, VALID_TOKENS, LICENSE_DURATION_DAYS,
-    get_base_dir, get_error_log_path, load_valid_tokens,
+    LicenseManager, LICENSE_DURATION_DAYS, get_error_log_path,
 )
 
 COLOR_BG_PANEL = "#161a28"
@@ -61,7 +59,7 @@ class LicenseDialog(QDialog):
 
         self.setWindowTitle("Activation de licence — Optima MTK Tool")
         self.setWindowModality(Qt.ApplicationModal)
-        self.setFixedSize(560, 420)
+        self.setFixedSize(560, 340)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         self._setup_ui()
@@ -83,7 +81,7 @@ class LicenseDialog(QDialog):
 
         lbl_sub = QLabel(
             "Optima MTK Tool nécessite une licence valide pour fonctionner. "
-            "Veuillez saisir un token d'activation parmi les 5 tokens autorisés."
+            "Veuillez saisir votre token d'activation."
         )
         lbl_sub.setWordWrap(True)
         lbl_sub.setStyleSheet(f"color: {COLOR_TEXT_MUT}; font-size: 12px;")
@@ -104,7 +102,7 @@ class LicenseDialog(QDialog):
         card_layout.addWidget(lbl_tok)
 
         self.txt_token = QLineEdit()
-        self.txt_token.setPlaceholderText("Ex: OPTIMA-14D-A1B2")
+        self.txt_token.setPlaceholderText("Entrez votre token d'activation")
         self.txt_token.setFixedHeight(38)
         self.txt_token.setFont(QFont("Consolas", 11, QFont.Bold))
         self.txt_token.setStyleSheet(f"""
@@ -122,18 +120,6 @@ class LicenseDialog(QDialog):
         """)
         self.txt_token.returnPressed.connect(self._on_activate_clicked)
         card_layout.addWidget(self.txt_token)
-
-        # Liste des tokens valides (aide-mémoire, depuis tokens.json si présent)
-        try:
-            tokens_list = load_valid_tokens()
-        except Exception:
-            tokens_list = list(VALID_TOKENS)
-        tokens_str = "  •  ".join(tokens_list)
-        lbl_tokens = QLabel(f"Tokens valides : {tokens_str}")
-        lbl_tokens.setWordWrap(True)
-        lbl_tokens.setStyleSheet(f"color: {COLOR_TEXT_MUT}; font-size: 10px; font-style: italic;")
-        card_layout.addWidget(lbl_tokens)
-
         self.btn_activate = QPushButton("Activer la licence")
         self.btn_activate.setObjectName("btnActivate")
         self.btn_activate.setFixedHeight(40)
@@ -159,8 +145,8 @@ class LicenseDialog(QDialog):
 
         lbl_info = QLabel(
             f"• Durée de validité : {LICENSE_DURATION_DAYS} jours après activation.<br>"
-            f"• Licence : <code>{os.path.join(get_base_dir(), 'license.json')}</code><br>"
-            f"• Journal d'erreurs : <code>{get_error_log_path()}</code>"
+            "• La licence est stockée localement et vérifiée hors ligne.<br>"
+            "• Saisissez le token fourni par l'administrateur pour activer l'outil."
         )
         lbl_info.setWordWrap(True)
         lbl_info.setStyleSheet(f"color: {COLOR_TEXT_MUT}; font-size: 11px;")

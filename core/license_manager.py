@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 core/license_manager.py — Système de licence offline Optima MTK Tool.
-Gère l'activation par token (lecture tokens.json / fallback intégré),
-la durée de validité (14 jours), le stockage local (license.json)
-et le calcul du temps restant. Journalise les erreurs dans error.log.
+Gère l'activation par token via fichier externe (tokens.json / tokens.txt)
+à la racine du projet, la durée de validité (14 jours), le stockage local
+(license.json) et le calcul du temps restant. Journalise dans error.log.
 """
 
 import json
@@ -12,16 +12,6 @@ import sys
 import traceback
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple, List
-
-
-# ─── Tokens valides (fallback) ───────────────────────────────────────────
-VALID_TOKENS = [
-    "OPTIMA-14D-A1B2",
-    "OPTIMA-14D-C3D4",
-    "OPTIMA-14D-E5F6",
-    "OPTIMA-14D-G7H8",
-    "OPTIMA-14D-I9J0",
-]
 
 LICENSE_DURATION_DAYS = 14
 
@@ -39,8 +29,15 @@ def get_license_path() -> str:
 
 
 def get_tokens_path() -> str:
-    """Chemin absolu de tokens.json."""
-    return os.path.join(get_base_dir(), "tokens.json")
+    """Chemin absolu du fichier de tokens externe (priorité: tokens.json, puis tokens.txt)."""
+    base = get_base_dir()
+    json_path = os.path.join(base, "tokens.json")
+    txt_path = os.path.join(base, "tokens.txt")
+    if os.path.exists(json_path):
+        return json_path
+    if os.path.exists(txt_path):
+        return txt_path
+    return json_path
 
 
 def get_error_log_path() -> str:
@@ -65,25 +62,41 @@ def log_error_to_file(message: str, exc: Optional[BaseException] = None) -> None
 
 
 def load_valid_tokens() -> List[str]:
-    """Charge les tokens depuis tokens.json (chemin absolu) avec fallback."""
+    """
+    Charge les tokens autorisés depuis un fichier EXTERNE à la racine du projet.
+    - Supporte `tokens.json` (liste ou objet avec `tokens`/`valid_tokens`) et `tokens.txt` (1 token/ligne).
+    - Aucun token n'est codé en dur dans le binaire source : si le fichier est absent,
+      la validation retourne une liste vide (activation refusée).
+    - La lecture est faite dynamiquement à chaque appel (clic "Activer la licence").
+    """
     tokens_path = get_tokens_path()
     try:
-        if os.path.exists(tokens_path):
+        if not os.path.exists(tokens_path):
+            log_error_to_file(
+                f"Fichier de tokens externe introuvable (activation impossible) : {tokens_path}"
+            )
+            return []
+
+        if tokens_path.lower().endswith(".txt"):
             with open(tokens_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            # Supporte: ["TOK1", ...] ou {"tokens": ["TOK1", ...]} ou {"valid_tokens": [...]}
-            if isinstance(data, list):
-                tokens = [str(t).strip().upper() for t in data if str(t).strip()]
-            elif isinstance(data, dict):
-                raw = data.get("tokens") or data.get("valid_tokens") or data.get("VALID_TOKENS") or []
-                tokens = [str(t).strip().upper() for t in raw if str(t).strip()]
-            else:
-                tokens = []
-            if tokens:
-                return tokens
+                return [line.strip().upper() for line in f if line.strip() and not line.lstrip().startswith("#")]
+
+        with open(tokens_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Supporte: ["TOK1", ...] ou {"tokens": ["TOK1", ...]} ou {"valid_tokens": [...]}
+        if isinstance(data, list):
+            tokens = [str(t).strip().upper() for t in data if str(t).strip()]
+        elif isinstance(data, dict):
+            raw = data.get("tokens") or data.get("valid_tokens") or data.get("VALID_TOKENS") or []
+            tokens = [str(t).strip().upper() for t in raw if str(t).strip()]
+        else:
+            tokens = []
+        if not tokens:
+            log_error_to_file(f"Fichier de tokens externe vide ou invalide : {tokens_path}")
+        return tokens
     except Exception as e:
-        log_error_to_file(f"Lecture de tokens.json échouée ({tokens_path}) : {e}", e)
-    return [t.strip().upper() for t in VALID_TOKENS]
+        log_error_to_file(f"Lecture du fichier de tokens échouée ({tokens_path}) : {e}", e)
+        return []
 
 
 # Compatibilité ascendante
@@ -95,7 +108,7 @@ class LicenseManager:
     Gestionnaire de licence offline pour Optima MTK Tool.
 
     Responsabilités :
-      - Valider un token d'activation (tokens.json si présent, sinon fallback intégré).
+      - Valider un token d'activation depuis un fichier externe (tokens.json / tokens.txt).
       - Enregistrer la date d'activation + expiration (J+14) dans license.json.
       - Vérifier la validité de la licence (non expirée).
       - Calculer le temps restant (affichage type horloge compte à rebours).
@@ -113,7 +126,7 @@ class LicenseManager:
     # Validation de token
     # ------------------------------------------------------------------
     def is_valid_token(self, token: str) -> bool:
-        """Vérifie si un token figure dans tokens.json (ou fallback intégré)."""
+        """Vérifie si un token figure dans le fichier externe de tokens."""
         token_norm = (token or "").strip().upper()
         if not token_norm:
             return False
@@ -121,8 +134,9 @@ class LicenseManager:
 
     def activate_token(self, token: str) -> Tuple[bool, str]:
         """
-        Active un token valide : écrit license.json (chemin absolu) avec
-        date d'activation et date d'expiration (activation + 14 jours).
+        Active un token valide : lit dynamiquement le fichier externe de tokens,
+        puis écrit license.json (chemin absolu) avec date d'activation et
+        expiration (activation + 14 jours).
         Retourne (ok, message). En cas d'exception, journalise dans error.log.
         """
         try:
@@ -130,13 +144,15 @@ class LicenseManager:
             if not token_norm:
                 return False, "Veuillez saisir un token d'activation."
 
-            # Lecture/validation des tokens (tokens.json + fallback)
+            # Lecture dynamique des tokens depuis le fichier externe (admin)
             valid_tokens = load_valid_tokens()
-            if token_norm not in valid_tokens:
+            if not valid_tokens:
                 return False, (
-                    "Token invalide ou non reconnu.\n"
-                    f"(Source tokens: {self.tokens_path})"
+                    "Activation indisponible : aucun fichier de tokens valide trouvé.\n"
+                    "Contactez l'administrateur."
                 )
+            if token_norm not in valid_tokens:
+                return False, "Token invalide ou non reconnu."
 
             now = datetime.now()
             expiry = now + timedelta(days=LICENSE_DURATION_DAYS)
