@@ -9,14 +9,14 @@ _root_dir = os.path.dirname(_gui_dir)
 if _root_dir not in sys.path:
     sys.path.insert(0, _root_dir)
 
-from gui.connection_assistant import ConnectionAssistantDialog, execute_with_assistant
-from gui.main_window import MainWindow
-from gui.device_info_tab import DeviceInfoTab
-from gui.frp_tab import FRPResetTab
-from gui.tools_tab import ToolsTab
-from gui.log_panel import LogPanel
-from gui.device_status_widget import DeviceStatusBanner
-from gui.tft_widgets import (
+from .connection_assistant import ConnectionAssistantDialog, execute_with_assistant
+from .main_window import MainWindow
+from .device_info_tab import DeviceInfoTab
+from .frp_tab import FRPResetTab
+from .tools_tab import ToolsTab
+from .log_panel import LogPanel
+from .device_status_widget import DeviceStatusBanner
+from .tft_widgets import (
     BrandTabBar,
     ModelSelectorPanel,
     ActionTabsPanel,

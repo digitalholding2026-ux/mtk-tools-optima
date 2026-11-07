@@ -21,13 +21,13 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSlot
 from PyQt5.QtGui import QFont
 
-from gui.tft_widgets import (
+from .tft_widgets import (
     BrandTabBar, ModelSelectorPanel, ActionTabsPanel, ConnectionManagerPanel,
     COLOR_DARK_BG, COLOR_PANEL_BG, COLOR_BORDER, COLOR_ACCENT_BLUE,
     COLOR_TEXT_PRIMARY, COLOR_TEXT_MUTED, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER
 )
-from gui.log_panel import LogPanel
-from gui.device_status_widget import DeviceStatusBanner
+from .log_panel import LogPanel
+from .device_status_widget import DeviceStatusBanner
 from core.detector import DeviceDetector, ConnectedDevice, DeviceMode
 from core.mtk_communication import MTKCommunication
 from core.actions import (
@@ -39,7 +39,7 @@ from core.actions import (
 )
 
 from core.license_manager import LicenseManager
-from gui.license_widget import LicenseWidget
+from .license_widget import LicenseWidget
 
 
 # Instructions d'atelier dynamiques par action (badge -> guide court)

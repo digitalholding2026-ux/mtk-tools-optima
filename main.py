@@ -48,8 +48,14 @@ ensure_pure_gui()
 
 # ─── 2. Résolution dynamique de la racine du projet ─────────────────────────
 if getattr(sys, "frozen", False):
-    # En mode binaire compilé PyInstaller : sys._MEIPASS (_internal) ou dossier de l'exécutable
-    ROOT_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    # En mode binaire compilé PyInstaller : dossier de l'exécutable en priorité
+    _exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    _meipass = getattr(sys, "_MEIPASS", None)
+    ROOT_DIR = _exe_dir
+    # Ajouter les deux chemins potentiels au sys.path
+    for _p in (_exe_dir, _meipass):
+        if _p and _p not in sys.path:
+            sys.path.insert(0, _p)
 else:
     # En mode script Python de développement
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
