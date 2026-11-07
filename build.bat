@@ -36,7 +36,7 @@ echo ======================================================================
 echo [+] Lancement du processus de compilation PyInstaller...
 echo ======================================================================
 
-pyinstaller --noconfirm --onedir --windowed --uac-admin --name "OptimaMTKTool" --icon="assets/icon.ico" --add-data "drivers;drivers" --add-data "bin;bin" --add-data "assets;assets" --add-data "data;data" --hidden-import "usb.core" --hidden-import "usb.util" --hidden-import "usb.backend.libusb1" --hidden-import "serial.tools.list_ports" --hidden-import "serial.tools.list_ports_windows" main.py
+pyinstaller --noconfirm --onedir --windowed --uac-admin --name "OptimaMTKTool" --icon="assets/icon.ico" --add-data "drivers;drivers" --add-data "bin;bin" --add-data "assets;assets" --add-data "data;data" --hidden-import "usb.core" --hidden-import "usb.util" --hidden-import "usb.backend.libusb1" --hidden-import "serial.tools.list_ports" --hidden-import "serial.tools.list_ports_windows" --collect-all gui --collect-all core main.py
 
 if %errorlevel% neq 0 (
     echo.
