@@ -137,9 +137,9 @@ def main():
 
     # C. Vérification de la licence OFFLINE avant lancement de l'interface
     try:
-        from core.license_manager import LicenseManager
+        from core.license_manager import LicenseManager, log_error_to_file
         from gui.license_dialog import LicenseDialog
-        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtWidgets import QApplication, QMessageBox
 
         license_mgr = LicenseManager()
         is_valid, msg, _ = license_mgr.is_license_valid()
@@ -154,10 +154,16 @@ def main():
                 logger.info("[LICENCE] Aucun token activé. Arrêt de l'application.")
                 return
     except Exception as exc:
+        log_error_to_file(f"Échec critique vérification licence au démarrage : {exc}", exc)
+        QMessageBox.critical(
+            None, "Erreur critique de licence",
+            f"Impossible de vérifier la licence :\n{type(exc).__name__}: {exc}\n\n"
+            f"Détails enregistrés dans error.log."
+        )
         logger.warning(f"[LICENCE] Vérification de licence ignorée : {exc}")
 
     # D. Lancement de l'interface graphique PyQt5
-    from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtWidgets import QApplication, QMessageBox
     from PyQt5.QtGui import QIcon
     from PyQt5.QtCore import Qt
     from gui.main_window import MainWindow

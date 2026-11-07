@@ -27,6 +27,7 @@ except ImportError:
     HAS_SERIAL = False
 
 try:
+    from core.license_manager import log_error_to_file
     from core.usb_scanner import UsbScanner, UsbDeviceInfo, scan_mtk_devices, HAS_PYUSB
     _usb_scanner: Optional[UsbScanner] = None  # Initialisé à la première utilisation
     def _get_usb_scanner() -> "UsbScanner":
@@ -298,8 +299,8 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
                 creationflags=creationflags,
                 startupinfo=startupinfo
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_error_to_file(f"reset_adb_server : tâche kill adb échouée : {e}", e)
 
     # 2. Kill standard du serveur ADB
     try:
@@ -312,13 +313,12 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
             creationflags=creationflags,
             startupinfo=startupinfo
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError):
-        pass
-    except Exception:
-        pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError) as e:
+        log_error_to_file(f"reset_adb_server : kill-server échoué ({type(e).__name__}) : {e}", e)
+    except Exception as e:
+        log_error_to_file(f"reset_adb_server : kill-server exception inattendue : {e}", e)
 
     # 3. Démarrage du serveur ADB propre sans héritage de descripteurs de pipe
-    # (Évite le deadlock où le daemon en arrière-plan maintient le pipe stdout ouvert)
     try:
         detached_flags = creationflags
         if sys.platform == "win32":
@@ -334,9 +334,15 @@ def reset_adb_server(adb_bin: Optional[str] = None) -> bool:
             startupinfo=startupinfo
         )
         return res.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError):
+    except FileNotFoundError as e:
+        log_error_to_file(f"reset_adb_server : adb.exe introuvable : {e}", e)
         return False
-    except Exception:
+    except (subprocess.TimeoutExpired, PermissionError, OSError) as e:
+        log_error_to_file(f"reset_adb_server : start-server échoué ({type(e).__name__}) : {e}", e)
+        return False
+    except Exception as e:
+        log_error_to_file(f"reset_adb_server : start-server exception inattendue : {e}", e)
+        return False
         return False
 
 
@@ -454,20 +460,25 @@ class DeviceDetector(QThread):
         while self._running:
             try:
                 self._perform_scan(force_emit=False)
-            except FileNotFoundError:
+            except FileNotFoundError as e:
                 # Binaire (adb, fastboot) introuvable dans le système ou tools/
-                pass
-            except PermissionError:
+                log_error_to_file(f"DeviceDetector.run : binaire introuvable : {e}", e)
+                self.log_message.emit("Binaire ADB/Fastboot introuvable.", "error")
+            except PermissionError as e:
                 # Accès refusé temporaire sur un port USB/COM en cours d'énumération
-                pass
-            except subprocess.TimeoutExpired:
+                log_error_to_file(f"DeviceDetector.run : permission refusée : {e}", e)
+                self.log_message.emit("Accès USB/COM refusé.", "warning")
+            except subprocess.TimeoutExpired as e:
                 # Timeout d'une commande subprocess
-                pass
-            except (subprocess.SubprocessError, OSError):
-                pass
+                log_error_to_file(f"DeviceDetector.run : timeout subprocess : {e}", e)
+                self.log_message.emit("Timeout lors de la détection.", "warning")
+            except (subprocess.SubprocessError, OSError) as e:
+                log_error_to_file(f"DeviceDetector.run : erreur sous-processus/OS : {e}", e)
+                self.log_message.emit("Erreur de détection matériel.", "error")
             except Exception as e:
                 # Toute autre exception inattendue est capturée pour ne jamais tuer le thread
-                pass
+                log_error_to_file(f"DeviceDetector.run : exception inattendue : {e}", e)
+                self.log_message.emit(f"Erreur détection : {type(e).__name__}: {e}", "error")
 
             # Sommeil par micro-intervalles pour arrêt immédiat lors de la fermeture
             steps = int(self._interval * 10)

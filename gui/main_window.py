@@ -38,7 +38,7 @@ from core.actions import (
     remove_mdm_payjoy, bypass_oppo_id, ActionResult
 )
 
-from core.license_manager import LicenseManager
+from core.license_manager import LicenseManager, log_error_to_file
 from .license_widget import LicenseWidget
 
 
@@ -197,27 +197,45 @@ class MainWindow(QMainWindow):
         self.license_widget.license_activated.connect(self._on_license_activated)
 
     def _check_license_startup(self):
-        is_valid, msg, _ = self.license_mgr.is_license_valid()
-        self._license_blocked = not is_valid
-        if not is_valid:
-            self._append_log(f"Licence : {msg}", "warning")
+        try:
+            is_valid, msg, _ = self.license_mgr.is_license_valid()
+            self._license_blocked = not is_valid
+            if not is_valid:
+                self._append_log(f"Licence : {msg}", "warning")
+        except Exception as exc:
+            self._license_blocked = True
+            self._append_log(f"Erreur licence : {exc}", "error")
 
     def _on_license_activate_requested(self):
         from gui.license_dialog import LicenseDialog
-        dlg = LicenseDialog(self)
-        if dlg.exec_() == dlg.Accepted:
-            self._on_license_activated()
+        if hasattr(self, 'license_widget') and hasattr(self.license_widget, '_timer'):
+            self.license_widget._timer.stop()
+        try:
+            dlg = LicenseDialog(self)
+            if dlg.exec_() == dlg.Accepted:
+                self._on_license_activated()
+        finally:
+            if hasattr(self, 'license_widget') and hasattr(self.license_widget, '_timer'):
+                self.license_widget._timer.start()
 
     def _on_license_activated(self):
-        self._check_license_startup()
-        self.license_widget._refresh()
+        try:
+            self._check_license_startup()
+            self.license_widget._refresh()
+        except Exception as exc:
+            self._append_log(f"Erreur activation licence : {exc}", "error")
 
     def _is_action_allowed(self) -> bool:
-        is_valid, msg, _ = self.license_mgr.is_license_valid()
-        self._license_blocked = not is_valid
-        if not is_valid:
-            self._append_log(f"Licence : {msg}", "warning")
-        return is_valid
+        try:
+            is_valid, msg, _ = self.license_mgr.is_license_valid()
+            self._license_blocked = not is_valid
+            if not is_valid:
+                self._append_log(f"Licence : {msg}", "warning")
+            return is_valid
+        except Exception as exc:
+            self._license_blocked = True
+            self._append_log(f"Erreur licence : {exc}", "error")
+            return False
 
     def _apply_global_stylesheet(self):
         self.setStyleSheet(f"""
@@ -529,33 +547,40 @@ class MainWindow(QMainWindow):
             )
 
     def _execute_reboot_direct(self, target: str):
-        if target == "download":
-            from core.actions import find_adb
-            adb_bin = find_adb() or "adb"
-            self._append_log("Envoi de la commande 'adb reboot download'...", "info")
-            try:
-                subprocess_run = __import__('subprocess').run([adb_bin, "reboot", "download"], capture_output=True, timeout=5)
-                self._append_log("Commande 'adb reboot download' envoyée.", "success")
-            except Exception as e:
-                self._append_log(f"Échec reboot download : {e}", "error")
-            return
-
-        if target == "fastboot":
-            current = self.detector.get_current_device()
-            if not current or current.mode != DeviceMode.ADB:
-                self._append_log("Aucun appareil en mode ADB actif", "warning")
+        try:
+            if target == "download":
+                from core.actions import find_adb
+                adb_bin = find_adb() or "adb"
+                self._append_log("Envoi de la commande 'adb reboot download'...", "info")
+                try:
+                    subprocess_run = __import__('subprocess').run([adb_bin, "reboot", "download"], capture_output=True, timeout=5)
+                    self._append_log("Commande 'adb reboot download' envoyée.", "success")
+                except Exception as e:
+                    self._append_log(f"Échec reboot download : {e}", "error")
+                    log_error_to_file(f"Échec reboot download : {e}", e)
+                    QMessageBox.critical(self, "Échec redémarrage download", f"{type(e).__name__}: {e}")
                 return
-            from core.actions import reboot_to_fastboot
-            serial = current.serial_number or current.identifier
-            reboot_to_fastboot(device_serial=serial, log_callback=self._append_log)
-            return
 
-        current = self.detector.get_current_device()
-        if current:
-            target_id = current.port or current.serial_number or current.identifier
-            reboot_device(current.mode, target_id, target_reboot=target, log_callback=self._append_log)
-        else:
-            self._append_log(f"Aucun appareil connecté pour redémarrage vers {target}.", "warning")
+            if target == "fastboot":
+                current = self.detector.get_current_device()
+                if not current or current.mode != DeviceMode.ADB:
+                    self._append_log("Aucun appareil en mode ADB actif", "warning")
+                    return
+                from core.actions import reboot_to_fastboot
+                serial = current.serial_number or current.identifier
+                reboot_to_fastboot(device_serial=serial, log_callback=self._append_log)
+                return
+
+            current = self.detector.get_current_device()
+            if current:
+                target_id = current.port or current.serial_number or current.identifier
+                reboot_device(current.mode, target_id, target_reboot=target, log_callback=self._append_log)
+            else:
+                self._append_log(f"Aucun appareil connecté pour redémarrage vers {target}.", "warning")
+        except Exception as e:
+            self._append_log(f"Échec reboot {target} : {e}", "error")
+            log_error_to_file(f"Échec reboot {target} : {e}", e)
+            QMessageBox.critical(self, "Échec redémarrage", f"{type(e).__name__}: {e}")
 
     def _execute_adb_factory_reset_action(self, dev: Optional[ConnectedDevice] = None):
         device_id = None
