@@ -37,6 +37,155 @@ COLOR_WARNING       = "#f59e0b"  # Ambre
 COLOR_DANGER        = "#ef4444"  # Rouge rubis
 COLOR_PURPLE        = "#a855f7"  # Violet
 
+# Infobulles détaillées par action (badge -> titre, sous-titre, explanation)
+ACTION_TOOLTIPS: Dict[str, Dict[str, str]] = {
+    "BROM_ERASE_FRP": {
+        "title": "[BROM] Effacer FRP",
+        "subtitle": "Supprime le compte Google (FRP) en mode Preloader/BROM.",
+        "explanation": "Supprime le verrou Google (FRP) sur les processeurs MediaTek en mode Preloader/BROM. Nécessite d'éteindre le téléphone, de maintenir Volume Bas, puis de brancher le câble USB.",
+    },
+    "FASTBOOT_ERASE_FRP": {
+        "title": "[FASTBOOT] Effacer FRP",
+        "subtitle": "Supprime le compte Google (FRP) en mode Fastboot.",
+        "explanation": "Supprime le verrou Google (FRP) via le protocole Fastboot. L'appareil doit être démarré en mode Fastboot (Vol- + Power) et connecté par USB.",
+    },
+    "SAMSUNG_ERASE_FRP": {
+        "title": "[SAMSUNG] Effacer FRP Knox",
+        "subtitle": "Supprime le FRP sur Samsung Galaxy en mode BROM.",
+        "explanation": "Supprime le verrou Google (FRP) et Knox sur les Samsung Galaxy via le mode BROM. Nécessite d'éteindre le téléphone, de maintenir Vol+ et Vol-, puis de brancher le câble USB.",
+    },
+    "SAMSUNG_FRP_TESTMODE": {
+        "title": "[SAMSUNG] FRP (*#0*#)",
+        "subtitle": "Bypass FRP via le menu de test Samsung.",
+        "explanation": "Contourne le FRP sur Samsung Galaxy via le code secret *#0*# (menu de test). Le téléphone doit être allumé sur l'écran d'urgence et connecté en mode MTP/ADB.",
+    },
+    "SAMSUNG_READ_INFO_MTP": {
+        "title": "[SAMSUNG] Lecture Infos MTP",
+        "subtitle": "Lit les informations appareil via MTP.",
+        "explanation": "Lit les spécifications du Samsung Galaxy connecté en mode MTP (Transfert de fichiers). Le téléphone doit être allumé et en mode transfert de fichiers.",
+    },
+    "SAMSUNG_KNOX_ENROLL": {
+        "title": "[SAMSUNG] Désactiver Knox Enrollment",
+        "subtitle": "Neutralise les services Knox Enrollment/MDM.",
+        "explanation": "Désactive l'inscription Knox Enrollment et les profils MDM sur les appareils Samsung. Connectez l'appareil allumé en mode ADB ou BROM.",
+    },
+    "SAMSUNG_REBOOT_DOWNLOAD": {
+        "title": "[SAMSUNG] Redémarrer en Download",
+        "subtitle": "Bascule le Samsung en mode Download (Odin).",
+        "explanation": "Envoie la commande 'adb reboot download' pour basculer le Samsung Galaxy en mode Download (Odin) permettant le flash via Odin sur PC.",
+    },
+    "XIAOMI_MI_ACCOUNT_BYPASS": {
+        "title": "[XIAOMI] Bypass Mi Account",
+        "subtitle": "Contourne le compte Mi/Xiaomi Cloud.",
+        "explanation": "Supprime le verrou compte Mi/Xiaomi Cloud sur les appareils Xiaomi/Redmi/POCO en mode BROM ou Fastboot. Nécessite d'éteindre le téléphone, de maintenir Vol-, puis de brancher le câble USB.",
+    },
+    "TRANSSION_REMOVE_MDM": {
+        "title": "[TRANSSION] Suppression MDM / PayJoy",
+        "subtitle": "Supprime MDM / PayJoy sur Infinix/Tecno.",
+        "explanation": "Supprime les profils MDM et PayJoy sur les appareils Transsion (Infinix, Tecno, itel) en mode BROM. Nécessite d'éteindre le téléphone, de maintenir Vol-, puis de brancher le câble USB.",
+    },
+    "OPPO_ID_BYPASS": {
+        "title": "[OPPO/REALME] Bypass Oppo ID / HeyTap",
+        "subtitle": "Contourne le compte Oppo/Realme/HeyTap.",
+        "explanation": "Supprime le verrou compte Oppo ID, Realme ID ou HeyTap sur les appareils Oppo/Realme en mode BROM. Nécessite d'éteindre le téléphone, de maintenir Vol+ et Vol-, puis de brancher le câble USB.",
+    },
+    "BROM_UNLOCK_BL": {
+        "title": "[BROM] Déverrouiller Bootloader",
+        "subtitle": "Déverrouille le bootloader en mode BROM.",
+        "explanation": "Déverrouille le bootloader des processeurs MediaTek en mode Preloader/BROM. Permet d'installer des recoveries custom ou des ROM modifiées.",
+    },
+    "BROM_RELOCK_BL": {
+        "title": "[BROM] Reverrouiller Bootloader",
+        "subtitle": "Reverrouille le bootloader en mode BROM.",
+        "explanation": "Reverrouille le bootloader des processeurs MediaTek en mode Preloader/BROM pour restaurer la sécurité d'usine de l'appareil.",
+    },
+    "FASTBOOT_OEM_UNLOCK": {
+        "title": "[FASTBOOT] OEM Unlock",
+        "subtitle": "Déverrouille le bootloader en mode Fastboot.",
+        "explanation": "Exécute 'fastboot oem unlock' pour déverrouiller le bootloader des appareils Android en mode Fastboot.",
+    },
+    "READ_INFO_ADB": {
+        "title": "[ADB] Lecture Infos Appareil",
+        "subtitle": "Lit les informations via le pont ADB.",
+        "explanation": "Lit les spécifications de l'appareil Android connecté en mode ADB (Débogage USB activé).",
+    },
+    "BROM_FACTORY_RESET": {
+        "title": "[BROM] Factory Reset",
+        "subtitle": "Réinitialisation complète en mode BROM.",
+        "explanation": "Efface toutes les données de l'utilisateur (partition userdata) sur les processeurs MediaTek en mode BROM. Irréversible — sauvegardez vos données avant.",
+    },
+    "ADB_FACTORY_RESET": {
+        "title": "[ADB] Factory Reset",
+        "subtitle": "Réinitialisation complète via ADB.",
+        "explanation": "Réinitialise l'appareil Android aux paramètres d'usine via le pont ADB. Toutes les données personnelles, comptes et applications seront supprimées.",
+    },
+    "BROM_SAFE_FORMAT": {
+        "title": "[BROM] Safe Format",
+        "subtitle": "Formatage sécurisé en mode BROM.",
+        "explanation": "Effectue un formatage sécurisé des partitions utilisateur en mode BROM sur les processeurs MediaTek, sans toucher aux partitions de boot ou de recovery.",
+    },
+    "BROM_READ_INFO": {
+        "title": "[BROM] Lire Infos Matérielles",
+        "subtitle": "Lit les spécifications matérielles en mode BROM.",
+        "explanation": "Lit les informations matérielles (chipset, version, mémoire, etc.) des processeurs MediaTek en mode Preloader/BROM.",
+    },
+    "BROM_REMOVE_DEMO": {
+        "title": "[BROM] Supprimer Démo / PayJoy",
+        "subtitle": "Supprime le mode Démo et PayJoy en mode BROM.",
+        "explanation": "Supprime le compte Démo / Mode Démo et PayJoy sur les appareils MediaTek en mode Preloader/BROM.",
+    },
+    "ADB_READ_INFO": {
+        "title": "[ADB] Lire Spécifications Système",
+        "subtitle": "Lit les spécifications système via ADB.",
+        "explanation": "Lit les spécifications système complètes (Android, modèle, constructeur, etc.) via le pont ADB sur un appareil allumé en mode normal.",
+    },
+    "BROM_AUTH_BYPASS": {
+        "title": "[BROM] Bypass SLA / DAA",
+        "subtitle": "Contourne l'authentification SLA/DAA en mode BROM.",
+        "explanation": "Bypasse l'authentification SLA (Secondary Loader Authentication) et DAA sur les processeurs MediaTek en mode BROM pour autoriser les opérations de flash.",
+    },
+    "FASTBOOT_GETVAR": {
+        "title": "[FASTBOOT] Getvar All",
+        "subtitle": "Lit les variables Fastboot de l'appareil.",
+        "explanation": "Affiche toutes les variables Fastboot (version, serial, unlocked, etc.) de l'appareil connecté en mode Fastboot.",
+    },
+    "FASTBOOT_ERASE_USERDATA": {
+        "title": "[FASTBOOT] Erase Userdata",
+        "subtitle": "Efface la partition userdata en Fastboot.",
+        "explanation": "Formate la partition userdata de l'appareil Android en mode Fastboot. Toutes les données utilisateur seront définitivement supprimées.",
+    },
+    "REBOOT_NORMAL": {
+        "title": "[REBOOT] Redémarrage Normal",
+        "subtitle": "Redémarre l'appareil en mode normal.",
+        "explanation": "Redémarre l'appareil connecté vers le mode normal (Android).",
+    },
+    "REBOOT_FASTBOOT": {
+        "title": "[REBOOT] Redémarrage Fastboot",
+        "subtitle": "Redémarre l'appareil en mode Fastboot.",
+        "explanation": "Redémarre l'appareil Android connecté (en mode ADB) vers le mode Fastboot.",
+    },
+    "REBOOT_RECOVERY": {
+        "title": "[REBOOT] Redémarrage Recovery",
+        "subtitle": "Redémarre l'appareil en mode Recovery.",
+        "explanation": "Redémarre l'appareil connecté vers le mode Recovery pour les opérations de maintenance et de flash.",
+    },
+    "FASTBOOT_OEM_CLEAR": {
+        "title": "[FASTBOOT] OEM Clear",
+        "subtitle": "Efface les données OEM en mode Fastboot.",
+        "explanation": "Exécute 'fastboot oem clear' pour effacer les données et verrous OEM de l'appareil en mode Fastboot.",
+    },
+    "RECOVERY_READ_INFO": {
+        "title": "[RECOVERY] Lire Infos",
+        "subtitle": "Lit les informations en mode Recovery.",
+        "explanation": "Lit les informations de l'appareil Android connecté en mode Recovery ou ADB.",
+    },
+    "RECOVERY_FORMAT": {
+        "title": "[RECOVERY] Format Data",
+        "subtitle": "Formate la partition Data en Recovery.",
+        "explanation": "Formate la partition Data de l'appareil en mode Recovery ou Fastboot. Toutes les données utilisateur seront supprimées.",
+    },
+}
+
 
 # =====================================================================
 # 1. En-tête des Marques (Top Bar)
@@ -301,6 +450,8 @@ class ModelSelectorPanel(QFrame):
 class ActionButton(QPushButton):
     """Bouton d'action optimisé (hauteur min 44px, haut contraste, zéro texte masqué)."""
 
+    action_hovered = pyqtSignal(str)
+
     def __init__(self, badge: str, title: str, subtitle: str, color_hex: str = COLOR_ACCENT_BLUE, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(44)
@@ -312,12 +463,18 @@ class ActionButton(QPushButton):
         self.title = title
         self.subtitle = subtitle
         self.color_hex = color_hex
+        self.action_key = ""
 
         # Texte principal propre et très lisible
         self.setText(f"[{self.badge}]  {self.title}")
         self.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        # Infobulle détaillée sur le survol
-        self.setToolTip(f"<b>[{self.badge}] {self.title}</b><br>{self.subtitle}")
+
+        # Infobulle détaillée depuis le dictionnaire ACTION_TOOLTIPS
+        tip = ACTION_TOOLTIPS.get(self.badge, {})
+        full_title = tip.get("title", f"[{self.badge}] {self.title}")
+        full_subtitle = tip.get("subtitle", self.subtitle)
+        explanation = tip.get("explanation", "")
+        self.setToolTip(f"<b>{full_title}</b><br>{full_subtitle}<br><br><i>{explanation}</i>")
 
         self.setStyleSheet(f"""
             QPushButton {{
@@ -346,6 +503,13 @@ class ActionButton(QPushButton):
             }}
         """)
 
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.action_hovered.emit(self.action_key)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+
 
 class ActionTabsPanel(QFrame):
     """
@@ -355,6 +519,7 @@ class ActionTabsPanel(QFrame):
     """
 
     action_triggered = pyqtSignal(str, dict)
+    action_hovered = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -453,7 +618,7 @@ class ActionTabsPanel(QFrame):
         self._tab_grids[category_key] = grid
         return w
 
-def load_brand_actions(self, brand_id: str, model_data: Optional[Dict[str, Any]] = None):
+    def load_brand_actions(self, brand_id: str, model_data: Optional[Dict[str, Any]] = None):
         """
         Met à jour dynamiquement tous les boutons d'actions et l'en-tête selon la marque et le modèle.
         Chaque marque reçoit ses fonctions dédiées (ex: Samsung *#0*#, Xiaomi Mi Account, Infinix MDM).
@@ -488,6 +653,8 @@ def load_brand_actions(self, brand_id: str, model_data: Optional[Dict[str, Any]]
                     subtitle=act.get("subtitle", ""),
                     color_hex=act.get("color", COLOR_ACCENT_BLUE)
                 )
+                btn.action_key = act["key"]
+                btn.action_hovered.connect(self.action_hovered.emit)
                 btn.clicked.connect(
                     lambda ch, k=act["key"]: self.action_triggered.emit(
                         k, {"brand": self._current_brand, "model": self._current_model}
@@ -639,7 +806,32 @@ class ConnectionManagerPanel(QFrame):
         self.guide_layout.addWidget(self.lbl_guide_title)
         self._tip_labels: List[QLabel] = []
 
+        # ── 5. Guide contextuel dynamique (survol des boutons d'action) ─────────
+        self.ctx_guide_box = QFrame()
+        self.ctx_guide_box.setObjectName("ctxGuideBox")
+        self.ctx_guide_box.setStyleSheet(f"""
+            QFrame#ctxGuideBox {{
+                background-color: #0d1526;
+                border: 1px solid {COLOR_ACCENT_BLUE}44;
+                border-left: 3px solid {COLOR_ACCENT_BLUE};
+                border-radius: 4px;
+            }}
+        """)
+        self.ctx_guide_layout = QVBoxLayout(self.ctx_guide_box)
+        self.ctx_guide_layout.setContentsMargins(8, 6, 8, 6)
+        self.ctx_guide_layout.setSpacing(3)
+
+        self.lbl_ctx_title = QLabel("GUIDE CONTEXTUEL :")
+        self.lbl_ctx_title.setStyleSheet(f"color: {COLOR_ACCENT_BLUE}; font-size: 9px; font-weight: bold;")
+        self.ctx_guide_layout.addWidget(self.lbl_ctx_title)
+
+        self.lbl_ctx_guide = QLabel("Survolez un bouton d'action pour afficher la procédure d'atelier.")
+        self.lbl_ctx_guide.setWordWrap(True)
+        self.lbl_ctx_guide.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 10px; font-style: italic;")
+        self.ctx_guide_layout.addWidget(self.lbl_ctx_guide)
+
         layout.addWidget(guide_box)
+        layout.addWidget(self.ctx_guide_box)
         layout.addStretch()
 
         # Chargement des instructions par défaut
@@ -681,8 +873,13 @@ class ConnectionManagerPanel(QFrame):
 
         return {"layout": h_layout, "title_lbl": lbl_t, "val_lbl": lbl_v}
 
+    def show_contextual_guide(self, action_key: str, guide_text: str):
+        """Affiche le guide d'atelier contextuel quand la souris survole un bouton d'action."""
+        self.lbl_ctx_title.setText(f"GUIDE CONTEXTUEL : {action_key}")
+        self.lbl_ctx_guide.setText(guide_text)
+        self.lbl_ctx_guide.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 10px; font-weight: normal;")
+
     def update_connection_state(self, device: Optional[ConnectedDevice]):
-        if device is None:
             self.row_brom["val_lbl"].setText("🔴 Déconnecté")
             self.row_brom["val_lbl"].setStyleSheet(f"color: {COLOR_DANGER}; font-weight: bold;")
 
