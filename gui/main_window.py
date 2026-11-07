@@ -12,7 +12,15 @@ Layouts fluides 100% dynamiques, sans cadres bloquants, avec console redimension
 """
 
 import subprocess
+import os
+import sys
 from typing import Optional, List, Callable, Dict, Any
+
+_gui_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_gui_dir)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStatusBar, QMessageBox, QFrame, QSplitter, QLabel
