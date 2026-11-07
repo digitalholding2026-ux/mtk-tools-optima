@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 gui/license_dialog.py — Fenêtre d'activation de licence offline Optima MTK Tool.
-Affiche une boîte modale permettant de saisir un token d'activation parmi les
-5 tokens valides. En cas de succès, la licence est enregistrée (license.json).
+Affiche une boîte modale permettant de saisir un token d'activation.
+En cas de succès, la licence est enregistrée (license.json).
 """
 
+import os
+import sys
+import traceback
+from datetime import datetime
 from typing import Optional
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -13,7 +17,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
-from core.license_manager import LicenseManager, VALID_TOKENS, LICENSE_DURATION_DAYS
+from core.license_manager import (
+    LicenseManager, VALID_TOKENS, LICENSE_DURATION_DAYS,
+    get_base_dir, get_error_log_path, load_valid_tokens,
+)
 
 COLOR_BG_PANEL = "#161a28"
 COLOR_BG_CARD  = "#121522"
@@ -24,6 +31,21 @@ COLOR_BORDER   = "#252c40"
 COLOR_SUCCESS  = "#2ecc71"
 COLOR_ERROR    = "#e74c3c"
 COLOR_WARNING  = "#f1c40f"
+
+
+def _log_error_to_file(message: str, exc: Optional[BaseException] = None) -> None:
+    """Journalise une erreur complète (traceback) dans error.log sans crasher."""
+    try:
+        log_path = get_error_log_path()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        trace = traceback.format_exc()
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] [UI][ActivationLicence] {message}\n")
+            if trace and trace.strip() != "NoneType: None":
+                f.write(trace)
+            f.write("-" * 80 + "\n")
+    except Exception:
+        pass
 
 
 class LicenseDialog(QDialog):
@@ -101,8 +123,12 @@ class LicenseDialog(QDialog):
         self.txt_token.returnPressed.connect(self._on_activate_clicked)
         card_layout.addWidget(self.txt_token)
 
-        # Liste des tokens valides (aide-mémoire)
-        tokens_str = "  •  ".join(VALID_TOKENS)
+        # Liste des tokens valides (aide-mémoire, depuis tokens.json si présent)
+        try:
+            tokens_list = load_valid_tokens()
+        except Exception:
+            tokens_list = list(VALID_TOKENS)
+        tokens_str = "  •  ".join(tokens_list)
         lbl_tokens = QLabel(f"Tokens valides : {tokens_str}")
         lbl_tokens.setWordWrap(True)
         lbl_tokens.setStyleSheet(f"color: {COLOR_TEXT_MUT}; font-size: 10px; font-style: italic;")
@@ -133,8 +159,8 @@ class LicenseDialog(QDialog):
 
         lbl_info = QLabel(
             f"• Durée de validité : {LICENSE_DURATION_DAYS} jours après activation.<br>"
-            "• La licence est stockée localement (license.json).<br>"
-            "• Un compte à rebours s'affiche en permanence dans l'interface."
+            f"• Licence : <code>{os.path.join(get_base_dir(), 'license.json')}</code><br>"
+            f"• Journal d'erreurs : <code>{get_error_log_path()}</code>"
         )
         lbl_info.setWordWrap(True)
         lbl_info.setStyleSheet(f"color: {COLOR_TEXT_MUT}; font-size: 11px;")
@@ -180,20 +206,57 @@ class LicenseDialog(QDialog):
     # Actions
     # ------------------------------------------------------------------
     def _on_activate_clicked(self):
-        token = self.txt_token.text().strip()
-        if not token:
-            QMessageBox.warning(self, "Token manquant", "Veuillez saisir un token d'activation.")
-            return
+        """
+        Validation de licence avec protection anti-crash :
+        - try/except global autour de toute la logique
+        - QMessageBox.critical explicite en cas d'erreur
+        - Trace complète écrite dans error.log (chemins absolus)
+        """
+        try:
+            token = (self.txt_token.text() or "").strip()
+            if not token:
+                QMessageBox.warning(
+                    self,
+                    "Token manquant",
+                    "Veuillez saisir un token d'activation."
+                )
+                return
 
-        ok, message = self.license_mgr.activate_token(token)
-        if ok:
-            QMessageBox.information(self, "Licence activée", message)
-            self.activated = True
-            self.accept()
-        else:
-            QMessageBox.critical(self, "Échec d'activation", message)
-            self.txt_token.clear()
-            self.txt_token.setFocus()
+            # Logique de vérification : lecture tokens (via LicenseManager),
+            # calcul de la date, écriture de license.json
+            ok, message = self.license_mgr.activate_token(token)
+
+            if ok:
+                QMessageBox.information(self, "Licence activée", message)
+                self.activated = True
+                self.accept()
+            else:
+                QMessageBox.critical(self, "Échec d'activation", message)
+                self.txt_token.clear()
+                self.txt_token.setFocus()
+
+        except Exception as e:
+            # Ne jamais laisser l'application crasher : log + dialogue explicite
+            try:
+                _log_error_to_file(
+                    f"Exception non gérée lors de l'activation : {e}", e
+                )
+            except Exception:
+                pass
+
+            tb = traceback.format_exc()
+            log_path = get_error_log_path()
+            QMessageBox.critical(
+                self,
+                "Erreur de licence",
+                "Une erreur est survenue :\n"
+                f"{str(e)}\n\n"
+                f"Détails enregistrés dans :\n{log_path}"
+            )
+            try:
+                self.txt_token.setFocus()
+            except Exception:
+                pass
 
     def exec_(self) -> int:
         """Affiche la dialog et retourne QDialog.Accepted si activation réussie."""

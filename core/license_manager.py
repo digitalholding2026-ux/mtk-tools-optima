@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 """
 core/license_manager.py — Système de licence offline Optima MTK Tool.
-Gère l'activation par token (5 tokens valides), la durée de validité (14 jours),
-le stockage local (license.json) et le calcul du temps restant.
+Gère l'activation par token (lecture tokens.json / fallback intégré),
+la durée de validité (14 jours), le stockage local (license.json)
+et le calcul du temps restant. Journalise les erreurs dans error.log.
 """
 
 import json
 import os
 import sys
+import traceback
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 
 
-# ─── Tokens valides en dur ──────────────────────────────────────────────
+# ─── Tokens valides (fallback) ───────────────────────────────────────────
 VALID_TOKENS = [
     "OPTIMA-14D-A1B2",
     "OPTIMA-14D-C3D4",
@@ -24,13 +26,68 @@ VALID_TOKENS = [
 LICENSE_DURATION_DAYS = 14
 
 
-def _get_license_path() -> str:
-    """Retourne le chemin du fichier license.json à la racine du projet."""
-    if getattr(sys, 'frozen', False):
-        base_dir = os.path.dirname(sys.executable)
-    else:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_dir, "license.json")
+def get_base_dir() -> str:
+    """Répertoire d'exécution absolu (compatible script et PyInstaller)."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_license_path() -> str:
+    """Chemin absolu de license.json."""
+    return os.path.join(get_base_dir(), "license.json")
+
+
+def get_tokens_path() -> str:
+    """Chemin absolu de tokens.json."""
+    return os.path.join(get_base_dir(), "tokens.json")
+
+
+def get_error_log_path() -> str:
+    """Chemin absolu de error.log."""
+    return os.path.join(get_base_dir(), "error.log")
+
+
+def log_error_to_file(message: str, exc: Optional[BaseException] = None) -> None:
+    """Écrit un message d'erreur et sa trace dans error.log (ne lève jamais)."""
+    try:
+        log_path = get_error_log_path()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        trace = traceback.format_exc() if exc is not None or sys.exc_info()[0] else ""
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {message}\n")
+            if trace and trace.strip() != "NoneType: None":
+                f.write(trace)
+            f.write("-" * 80 + "\n")
+    except Exception:
+        # Dernier recours : ne jamais crasher sur le logging
+        pass
+
+
+def load_valid_tokens() -> List[str]:
+    """Charge les tokens depuis tokens.json (chemin absolu) avec fallback."""
+    tokens_path = get_tokens_path()
+    try:
+        if os.path.exists(tokens_path):
+            with open(tokens_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Supporte: ["TOK1", ...] ou {"tokens": ["TOK1", ...]} ou {"valid_tokens": [...]}
+            if isinstance(data, list):
+                tokens = [str(t).strip().upper() for t in data if str(t).strip()]
+            elif isinstance(data, dict):
+                raw = data.get("tokens") or data.get("valid_tokens") or data.get("VALID_TOKENS") or []
+                tokens = [str(t).strip().upper() for t in raw if str(t).strip()]
+            else:
+                tokens = []
+            if tokens:
+                return tokens
+    except Exception as e:
+        log_error_to_file(f"Lecture de tokens.json échouée ({tokens_path}) : {e}", e)
+    return [t.strip().upper() for t in VALID_TOKENS]
+
+
+# Compatibilité ascendante
+_get_license_path = get_license_path
 
 
 class LicenseManager:
@@ -38,7 +95,7 @@ class LicenseManager:
     Gestionnaire de licence offline pour Optima MTK Tool.
 
     Responsabilités :
-      - Valider un token d'activation parmi les 5 tokens autorisés.
+      - Valider un token d'activation (tokens.json si présent, sinon fallback intégré).
       - Enregistrer la date d'activation + expiration (J+14) dans license.json.
       - Vérifier la validité de la licence (non expirée).
       - Calculer le temps restant (affichage type horloge compte à rebours).
@@ -46,45 +103,71 @@ class LicenseManager:
     """
 
     def __init__(self):
-        self.license_path = _get_license_path()
+        self.base_dir = get_base_dir()
+        self.license_path = get_license_path()
+        self.tokens_path = get_tokens_path()
+        self.error_log_path = get_error_log_path()
         self._license_data: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # Validation de token
     # ------------------------------------------------------------------
     def is_valid_token(self, token: str) -> bool:
-        """Vérifie si un token figure dans la liste des 5 tokens valides."""
-        return token.strip().upper() in [t.upper() for t in VALID_TOKENS]
+        """Vérifie si un token figure dans tokens.json (ou fallback intégré)."""
+        token_norm = (token or "").strip().upper()
+        if not token_norm:
+            return False
+        return token_norm in load_valid_tokens()
 
     def activate_token(self, token: str) -> Tuple[bool, str]:
         """
-        Active un token valide : écrit license.json avec date d'activation
-        et date d'expiration (activation + 14 jours).
+        Active un token valide : écrit license.json (chemin absolu) avec
+        date d'activation et date d'expiration (activation + 14 jours).
+        Retourne (ok, message). En cas d'exception, journalise dans error.log.
         """
-        token = token.strip().upper()
-        if not self.is_valid_token(token):
-            return False, "Token invalide ou non reconnu."
-
-        now = datetime.now()
-        expiry = now + timedelta(days=LICENSE_DURATION_DAYS)
-
-        license_data = {
-            "token": token,
-            "activated_at": now.isoformat(),
-            "expires_at": expiry.isoformat(),
-            "duration_days": LICENSE_DURATION_DAYS,
-        }
-
         try:
+            token_norm = (token or "").strip().upper()
+            if not token_norm:
+                return False, "Veuillez saisir un token d'activation."
+
+            # Lecture/validation des tokens (tokens.json + fallback)
+            valid_tokens = load_valid_tokens()
+            if token_norm not in valid_tokens:
+                return False, (
+                    "Token invalide ou non reconnu.\n"
+                    f"(Source tokens: {self.tokens_path})"
+                )
+
+            now = datetime.now()
+            expiry = now + timedelta(days=LICENSE_DURATION_DAYS)
+
+            license_data = {
+                "token": token_norm,
+                "activated_at": now.isoformat(),
+                "expires_at": expiry.isoformat(),
+                "duration_days": LICENSE_DURATION_DAYS,
+            }
+
+            # Écriture robuste de license.json (chemin absolu)
+            license_dir = os.path.dirname(self.license_path)
+            if license_dir and not os.path.exists(license_dir):
+                os.makedirs(license_dir, exist_ok=True)
             with open(self.license_path, "w", encoding="utf-8") as f:
                 json.dump(license_data, f, indent=2, ensure_ascii=False)
+
             self._license_data = license_data
             return True, (
                 f"Licence activée avec succès. Valide jusqu'au "
                 f"{expiry.strftime('%d/%m/%Y %H:%M')}."
             )
         except Exception as e:
-            return False, f"Erreur lors de l'enregistrement de la licence : {str(e)}"
+            log_error_to_file(
+                f"Erreur critique lors de l'activation de la licence "
+                f"(token='{(token or '').strip()}', license_path='{self.license_path}', "
+                f"tokens_path='{self.tokens_path}'): {e}",
+                e,
+            )
+            return False, f"{type(e).__name__}: {e}"
 
     # ------------------------------------------------------------------
     # Lecture / état de la licence
