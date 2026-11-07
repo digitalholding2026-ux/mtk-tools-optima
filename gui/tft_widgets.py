@@ -880,6 +880,7 @@ class ConnectionManagerPanel(QFrame):
         self.lbl_ctx_guide.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 10px; font-weight: normal;")
 
     def update_connection_state(self, device: Optional[ConnectedDevice]):
+        if device is None:
             self.row_brom["val_lbl"].setText("🔴 Déconnecté")
             self.row_brom["val_lbl"].setStyleSheet(f"color: {COLOR_DANGER}; font-weight: bold;")
 
