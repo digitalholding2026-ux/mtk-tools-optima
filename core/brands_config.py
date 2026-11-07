@@ -356,3 +356,20 @@ def get_brand_badge(brand_id: str) -> str:
     """Retourne le texte de badge pour la marque."""
     cfg = get_brand_config(brand_id)
     return cfg.get("badge", f"{brand_id.upper()} MTK")
+
+
+def get_brand_icon(brand_id: str) -> str:
+    """Retourne l'icône emoji associée à la marque."""
+    cfg = get_brand_config(brand_id)
+    return cfg.get("icon", "⚡")
+
+
+def get_brand_description(brand_id: str) -> str:
+    """Retourne la description technique de la marque."""
+    cfg = get_brand_config(brand_id)
+    return cfg.get("description", "")
+
+
+def list_available_brands() -> List[str]:
+    """Retourne la liste des identifiants de marques configurées."""
+    return list(BRANDS_CONFIG.keys())

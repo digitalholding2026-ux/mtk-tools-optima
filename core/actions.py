@@ -499,6 +499,78 @@ def read_device_info(
 
 
 # =====================================================================
+# 1.bis Action : LIRE LES INFORMATIONS COMPLÈTES VIA ADB (read_device_info_adb)
+# =====================================================================
+
+def read_device_info_adb(
+    device_identifier: Optional[str] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None
+) -> ActionResult:
+    """
+    Lit les informations complètes de l'appareil via ADB (shell getprop).
+    Extrait :
+      * Modèle        (ro.product.model)
+      * Marque        (ro.product.brand)
+      * Version Android (ro.build.version.release)
+      * Numéro de série (ro.serialno)
+      * Version du build (ro.build.display.id)
+    """
+    def _log(msg: str, lvl: str = "info"):
+        if log_callback:
+            log_callback(msg, lvl)
+
+    adb_bin = find_adb() or "adb"
+    target_args = ["-s", device_identifier] if device_identifier else []
+
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+
+    def _getprop(prop: str) -> str:
+        try:
+            ret, out, err = _run_adb_cmd(target_args + ["shell", "getprop", prop], timeout=5.0)
+            if ret == 0 and out.strip():
+                return out.strip()
+        except Exception:
+            pass
+        return "Inconnu"
+
+    _log("[+] Lecture des informations appareil via ADB (shell getprop)...", "info")
+
+    model = _getprop("ro.product.model")
+    brand = _getprop("ro.product.brand")
+    android_version = _getprop("ro.build.version.release")
+    serial_no = _getprop("ro.serialno")
+    build_display = _getprop("ro.build.display.id")
+
+    info_data = {
+        "model": model,
+        "brand": brand,
+        "android_version": android_version,
+        "serial": serial_no,
+        "build_display_id": build_display,
+        "source": "ADB",
+    }
+
+    _log(f"[+] Modèle     : {model}", "info")
+    _log(f"[+] Marque     : {brand}", "info")
+    _log(f"[+] Android    : {android_version}", "info")
+    _log(f"[+] Série      : {serial_no}", "info")
+    _log(f"[+] Build      : {build_display}", "info")
+    _log("[SUCCESS] Informations appareil lues avec succès via ADB.", "success")
+
+    return ActionResult(
+        success=True,
+        message="Informations appareil lues via ADB.",
+        data=info_data,
+    )
+
+
+# =====================================================================
 # 2. Action : FACTORY RESET (factory_reset & factory_reset_adb)
 # =====================================================================
 

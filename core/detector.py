@@ -365,6 +365,7 @@ class DeviceDetector(QThread):
         self._scan_lock = threading.Lock()
         self._fastboot_bin = self._find_fastboot_executable()
         self._adb_bin = self._find_adb_executable()
+        self._logged_usb_devices = set()  # Évite les logs de scan PyUSB répétitifs
 
     # -----------------------------------------------------------------
     # Localisation des binaires utilitaires (fastboot, adb)
@@ -675,21 +676,28 @@ class DeviceDetector(QThread):
                 )
                 results.append(connected)
 
-                # Log informatif (une seule fois par détection nouvelle, pas en boucle)
-                mode_lbl = {
-                    DeviceMode.BROM: "BROM/Preloader",
-                    DeviceMode.NORMAL: "Normal/AT",
-                    DeviceMode.FASTBOOT: "Fastboot",
-                    DeviceMode.USB_NORMAL: "USB Normal",
-                }.get(device_mode, device_mode.value)
-                self.log_message.emit(
-                    f"[PyUSB] Périphérique MediaTek détecté — {usb_dev.vid_pid_str} "
-                    f"mode {mode_lbl} ({usb_dev.description})",
-                    "info"
-                )
+                # Log informatif : une seule fois par périphérique (évite la boucle de scan répétitive)
+                if identifier not in self._logged_usb_devices:
+                    self._logged_usb_devices.add(identifier)
+                    mode_lbl = {
+                        DeviceMode.BROM: "BROM/Preloader",
+                        DeviceMode.NORMAL: "Normal/AT",
+                        DeviceMode.FASTBOOT: "Fastboot",
+                        DeviceMode.USB_NORMAL: "USB Normal",
+                    }.get(device_mode, device_mode.value)
+                    self.log_message.emit(
+                        f"[PyUSB] Périphérique MediaTek détecté — {usb_dev.vid_pid_str} "
+                        f"mode {mode_lbl} ({usb_dev.description})",
+                        "info"
+                    )
 
             except Exception:
                 continue
+
+        # Si plus aucun périphérique USB direct, on vide le cache de dédoublonnage
+        # afin de re-loguer les périphériques à leur prochaine détection.
+        if not results:
+            self._logged_usb_devices.clear()
 
         return results
 

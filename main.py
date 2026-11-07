@@ -129,7 +129,28 @@ def main():
     except Exception as exc:
         logger.warning(f"[INIT-ENV] Initialisation partielle de l'environnement : {exc}")
 
-    # C. Lancement de l'interface graphique PyQt5
+    # C. Vérification de la licence OFFLINE avant lancement de l'interface
+    try:
+        from core.license_manager import LicenseManager
+        from gui.license_dialog import LicenseDialog
+        from PyQt5.QtWidgets import QApplication
+
+        license_mgr = LicenseManager()
+        is_valid, msg, _ = license_mgr.is_license_valid()
+        if not is_valid:
+            # L'application nécessite une licence valide ; on affiche la dialog d'activation
+            app_tmp = QApplication.instance()
+            if app_tmp is None:
+                app_tmp = QApplication([])
+            dlg = LicenseDialog()
+            if dlg.exec_() != LicenseDialog.Accepted:
+                # L'utilisateur n'a pas activé de licence : sortie propre
+                logger.info("[LICENCE] Aucun token activé. Arrêt de l'application.")
+                return
+    except Exception as exc:
+        logger.warning(f"[LICENCE] Vérification de licence ignorée : {exc}")
+
+    # D. Lancement de l'interface graphique PyQt5
     from PyQt5.QtWidgets import QApplication
     from PyQt5.QtGui import QIcon
     from PyQt5.QtCore import Qt

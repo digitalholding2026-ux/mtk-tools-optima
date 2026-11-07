@@ -11,6 +11,7 @@ Layouts fluides 100% dynamiques, sans cadres bloquants, avec console redimension
   4. QSplitter vertical séparant l'espace de travail et la console de logs
 """
 
+import subprocess
 from typing import Optional, List, Callable, Dict, Any
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -29,11 +30,15 @@ from gui.device_status_widget import DeviceStatusBanner
 from core.detector import DeviceDetector, ConnectedDevice, DeviceMode
 from core.mtk_communication import MTKCommunication
 from core.actions import (
-    erase_frp, factory_reset, factory_reset_adb, read_device_info, reboot_device,
+    erase_frp, factory_reset, factory_reset_adb, read_device_info, read_device_info_adb,
+    reboot_device,
     unlock_bootloader, relock_bootloader,
     samsung_frp_testmode, samsung_read_info_mtp, bypass_mi_account,
     remove_mdm_payjoy, bypass_oppo_id, ActionResult
 )
+
+from core.license_manager import LicenseManager
+from gui.license_widget import LicenseWidget
 
 
 class MainWindow(QMainWindow):
@@ -56,6 +61,14 @@ class MainWindow(QMainWindow):
         self._apply_global_stylesheet()
         self._create_menu_bar()
         self._create_status_bar()
+
+        # Gestionnaire de licence offline
+        self.license_mgr = LicenseManager()
+        self._license_blocked = False
+        self._setup_license_ui()
+
+        # Vérification de la licence au démarrage (si non activée, blocage)
+        self._check_license_startup()
 
         # Connexions des signaux
         self.detector.device_detected.connect(self._on_device_detected)
@@ -86,6 +99,11 @@ class MainWindow(QMainWindow):
         self.brand_bar = BrandTabBar()
         self.brand_bar.brand_changed.connect(self._on_brand_changed)
         main_layout.addWidget(self.brand_bar)
+
+        # ── Widget de licence (compte à rebours en direct) ───────────
+        self.license_widget = LicenseWidget()
+        self.license_widget.set_activate_callback(self._on_license_activate_requested)
+        main_layout.addWidget(self.license_widget)
 
         # ── 2. Bandeau d'état permanent en ligne unique (38px) ───────
         self.status_banner = DeviceStatusBanner()
@@ -178,6 +196,41 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("Aucun appareil connecté")
         self.status_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
         self.status_bar.addPermanentWidget(self.status_label)
+
+    # ------------------------------------------------------------------
+    # Gestion de la licence offline
+    # ------------------------------------------------------------------
+    def _setup_license_ui(self):
+        """Initialise le widget de licence et ses connexions."""
+        self.license_widget.license_activated.connect(self._on_license_activated)
+
+    def _check_license_startup(self):
+        """Vérifie la licence au démarrage et bloque l'UI si nécessaire."""
+        is_valid, msg, _ = self.license_mgr.is_license_valid()
+        self._license_blocked = not is_valid
+        self._append_log(f"[LICENCE] {msg}", "success" if is_valid else "warning")
+        if not is_valid:
+            self._append_log("[LICENCE] Fonctions bloquées — Veuillez activer un token.", "warning")
+
+    def _on_license_activate_requested(self):
+        """Ouvert depuis le widget de licence : lance la dialog d'activation."""
+        from gui.license_dialog import LicenseDialog
+        dlg = LicenseDialog(self)
+        if dlg.exec_() == dlg.Accepted:
+            self._on_license_activated()
+
+    def _on_license_activated(self):
+        """Appelé après une activation de licence réussie."""
+        self._check_license_startup()
+        self.license_widget._refresh()
+
+    def _is_action_allowed(self) -> bool:
+        """Retourne False si la licence est expirée/absente (blocage des fonctions)."""
+        is_valid, msg, _ = self.license_mgr.is_license_valid()
+        self._license_blocked = not is_valid
+        if not is_valid:
+            self._append_log(f"[LICENCE] Action bloquée — {msg}", "warning")
+        return is_valid
 
     def _apply_global_stylesheet(self):
         self.setStyleSheet(f"""
@@ -285,6 +338,10 @@ class MainWindow(QMainWindow):
     # Routeur d'actions avec retour en direct
     # ------------------------------------------------------------------
     def _handle_action_triggered(self, action_key: str, options: dict):
+        # Blocage si licence expirée / absente
+        if not self._is_action_allowed():
+            return
+
         selected_model = self.model_selector.get_selected_model()
         model_name = selected_model.get("model", "Appareil") if selected_model else "Appareil"
 
@@ -386,6 +443,26 @@ class MainWindow(QMainWindow):
                 action_name="[FASTBOOT] OEM Unlock",
                 operation_func=lambda dev: unlock_bootloader(DeviceMode.FASTBOOT, dev.serial_number or dev.identifier, log_callback=self._append_log),
                 target_modes=[DeviceMode.FASTBOOT]
+            )
+
+        elif action_key == "READ_INFO_ADB":
+            dev = self.detector.get_current_device()
+            if not dev or dev.mode != DeviceMode.ADB:
+                self._append_log("[ERROR] Aucun appareil en mode ADB actif pour la lecture des infos.", "error")
+                QMessageBox.warning(
+                    self, "Lecture Infos ADB",
+                    "Aucun appareil connecté en mode ADB (Débogage USB).\n"
+                    "Allumez le téléphone, activez le Débogage USB et branchez le câble."
+                )
+                return
+            self.run_action_with_assistant(
+                action_name="[ADB] Lecture Infos Appareil",
+                operation_func=lambda d: read_device_info_adb(
+                    device_identifier=d.serial_number or d.identifier,
+                    log_callback=self._append_log
+                ),
+                target_modes=[DeviceMode.ADB],
+                custom_instructions="L'appareil doit être connecté en mode ADB (Débogage USB activé)."
             )
 
         # ── 2. FUNCTION ───────────────────────────────────────────────

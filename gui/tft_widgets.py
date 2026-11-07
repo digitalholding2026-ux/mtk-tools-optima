@@ -453,18 +453,20 @@ class ActionTabsPanel(QFrame):
         self._tab_grids[category_key] = grid
         return w
 
-    def load_brand_actions(self, brand_id: str, model_data: Optional[Dict[str, Any]] = None):
+def load_brand_actions(self, brand_id: str, model_data: Optional[Dict[str, Any]] = None):
         """
         Met à jour dynamiquement tous les boutons d'actions et l'en-tête selon la marque et le modèle.
         Chaque marque reçoit ses fonctions dédiées (ex: Samsung *#0*#, Xiaomi Mi Account, Infinix MDM).
         """
-        from core.brands_config import get_brand_actions, get_brand_badge
+        from core.brands_config import get_brand_actions, get_brand_badge, get_brand_icon, get_brand_description
 
         self._current_brand = (brand_id or "MEDIATEK").upper()
         if model_data is not None:
             self._current_model = model_data
 
         brand_actions = get_brand_actions(self._current_brand)
+        brand_icon = get_brand_icon(self._current_brand)
+        brand_badge = get_brand_badge(self._current_brand)
 
         # Reconstitution des boutons dans chaque catégorie
         for category, grid in self._tab_grids.items():
@@ -493,16 +495,22 @@ class ActionTabsPanel(QFrame):
                 )
                 grid.addWidget(btn, row, col)
 
-        # Mise à jour du bandeau de cible active
+        # Mise à jour du bandeau de cible active avec l'icône de la marque
         if self._current_model:
             model_name = self._current_model.get("model", self._current_brand)
             chip = self._current_model.get("chipset", "MTK")
-            self.lbl_active_target.setText(f"⚡ CIBLE ACTIVE : {model_name.upper()} ({chip})")
+            self.lbl_active_target.setText(f"{brand_icon} CIBLE ACTIVE : {model_name.upper()} ({chip})")
         else:
-            badge = get_brand_badge(self._current_brand)
-            self.lbl_active_target.setText(f"⚡ CIBLE ACTIVE : {badge} (AUTO-DETECT)")
+            self.lbl_active_target.setText(f"{brand_icon} CIBLE ACTIVE : {brand_badge} (AUTO-DETECT)")
 
-        self.lbl_mode_pill.setText(self._current_brand)
+        self.lbl_mode_pill.setText(brand_badge)
+        self.lbl_mode_pill.setStyleSheet(f"""
+            background-color: {COLOR_ACCENT_BLUE}22;
+            color: {COLOR_ACCENT_BLUE};
+            border: 1px solid {COLOR_ACCENT_BLUE};
+            border-radius: 3px;
+            padding: 1px 8px;
+        """)
 
     def update_selected_model(self, model_data: Dict[str, Any]):
         brand = model_data.get("brand_id", self._current_brand)
@@ -742,3 +750,4 @@ class ConnectionManagerPanel(QFrame):
                     border-radius: 4px;
                 }}
             """)
+
