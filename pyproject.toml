@@ -37,7 +37,7 @@ addopts = "-q"
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src/core", "src/adapters"]
+files = ["src/core", "src/adapters", "src/ui"]
 
 [[tool.mypy.overrides]]
 module = ["usb.*", "yaml.*"]
