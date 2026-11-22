@@ -56,3 +56,30 @@ cœur propriétaire (Python / PySide6)
 - L'interface CLI des moteurs devient un **contrat versionné** : toute rupture est testée.
 - Les dépendances GPL sont isolées dans un paquet séparé, installable indépendamment.
 - Une revue juridique annuelle et un audit SPDX complètent la décision.
+
+## ADR-002 — Élection LGPL pour PySide6 et shiboken6
+
+**Statut** : accepté · **Date** : 2026-11-22 · **Portée** : licence et distribution des dépendances graphiques.
+
+**Contexte** : `PySide6` et `shiboken6` sont publiés sous tri-licence
+`LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only`.
+
+**Décision** : le projet élit explicitement **LGPL-3.0-only** pour ces deux
+dépendances. Ce choix est opposable et documenté ; il ne change pas la licence
+du produit, qui reste **propriétaire**.
+
+**Conséquences** :
+- Distribution en **onedir**, jamais **onefile** : les bibliothèques Qt
+  (`Qt6Core.dll`, `Qt6Gui.dll`, `Qt6Widgets.dll`, `shiboken6*.pyd`…) restent
+  remplaçables par l'utilisateur, conformément à `STACK.md` §2.
+- Les DLL Qt sont livrées à côté de l'exécutable, jamais fusionnées dans un
+  binaire unique.
+- La notice LGPL et la procédure de remplacement des bibliothèques sont
+  incluses dans la distribution.
+- `pip-licenses --fail-on="GPL"` reste le contrôle de non-régression ; il doit
+  sortir en 0.
+- Toute évolution de PySide6 vers une licence non LGPL impose un nouvel ADR.
+
+**Vérification** : `pip-licenses` affiche `LGPL-3.0-only OR GPL-2.0-only OR
+GPL-3.0-only` pour PySide6, PySide6-Essentials, PySide6-Addons et shiboken6 ;
+le projet retient LGPL-3.0-only.

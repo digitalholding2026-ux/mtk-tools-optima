@@ -7,7 +7,8 @@ from src.core.types import ChipsetType, ConnectionMode, DeviceInfo
 from src.ui.main_window import MainWindow
 
 
-def test_window_opens(qtbot) -> None:
+def test_window_opens(qtbot, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.ui.main_window.check_backend", lambda: True)
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
@@ -24,7 +25,22 @@ def test_window_opens(qtbot) -> None:
     assert window._frp_button.isEnabled() is False
     assert window._flash_button.toolTip() == "Disponible après implémentation du module métier"
     assert window._frp_button.toolTip() == "Disponible après implémentation du module métier"
-    assert "Licence : MVP (non vérifiée)" in window._status_label.text()
+    assert "Licence : OK (placeholder)" in window._status_label.text()
+    assert "Backend USB : OK" in window._status_label.text()
+    assert window._backend_banner.isHidden()
+    assert window._scan_button.isEnabled()
+
+
+def test_backend_missing_disables_scan(qtbot, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.ui.main_window.check_backend", lambda: False)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window._backend_banner.isVisible()
+    assert "Backend libusb manquant" in window._backend_banner.text()
+    assert not window._scan_button.isEnabled()
+    assert "Backend USB : MANQUANT" in window._status_label.text()
 
 
 def test_scan_populates_table_without_blocking(
@@ -40,6 +56,7 @@ def test_scan_populates_table_without_blocking(
         address=2,
         serial="SERIAL1",
     )
+    monkeypatch.setattr("src.ui.main_window.check_backend", lambda: True)
     monkeypatch.setattr("src.ui.main_window.detect_devices", lambda: [device])
 
     window = MainWindow()

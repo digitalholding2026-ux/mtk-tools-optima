@@ -30,8 +30,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.adapters.usb.detector import detect_devices
-from src.adapters.usb.drivers import check_drivers, open_installer_script
-from src.core.types import DeviceInfo, OperationError
+from src.adapters.usb.drivers import check_backend, check_drivers, open_installer_script
+from src.core.license import check_license
+from src.core.types import DeviceInfo, OperationError, OperationFailure
 
 __all__ = ["MainWindow", "main"]
 
@@ -46,11 +47,11 @@ class ScanWorker(QObject):
     def run(self) -> None:
         try:
             devices = detect_devices()
-        except OperationError as exc:
+        except OperationFailure as exc:
             self.error.emit(exc)
             return
         except Exception as exc:  # noqa: BLE001 - filet de sécurité pour l'UI
-            self.error.emit(OperationError(f"Erreur inattendue : {exc}"))
+            self.error.emit(OperationFailure(OperationError(f"Erreur inattendue : {exc}")))
             return
         self.finished.emit(devices)
 
@@ -83,6 +84,8 @@ class MainWindow(QMainWindow):
         self._driver_worker: DriverCheckWorker | None = None
         self._status_message = "Prêt"
         self._driver_status = "non vérifié"
+        self._license_ok = check_license()
+        self._backend_ok = check_backend()
 
         self.setWindowTitle("Optima Telecom Flash Tool")
         self.resize(900, 600)
@@ -94,6 +97,18 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget(self)
         layout = QVBoxLayout(central)
+
+        self._backend_banner = QLabel(
+            "Backend libusb manquant — Scannez les appareils est désactivé. "
+            "Lancez scripts/install_drivers.ps1.",
+            central,
+        )
+        self._backend_banner.setWordWrap(True)
+        self._backend_banner.setStyleSheet(
+            "background-color: #fff3cd; color: #664d03; padding: 8px;"
+        )
+        self._backend_banner.setVisible(not self._backend_ok)
+        layout.addWidget(self._backend_banner)
 
         self._model = QStandardItemModel(self)
         self._model.setHorizontalHeaderLabels(
@@ -113,6 +128,7 @@ class MainWindow(QMainWindow):
 
         self._scan_button = QPushButton("Scanner les appareils", central)
         self._scan_button.clicked.connect(self._on_scan_clicked)
+        self._scan_button.setEnabled(self._backend_ok)
         buttons.addWidget(self._scan_button)
 
         self._flash_button = QPushButton("Flash", central)
@@ -144,9 +160,11 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self._status_label)
 
     def _refresh_status(self) -> None:
+        license_text = "OK (placeholder)" if self._license_ok else "NON"
+        backend_text = "OK" if self._backend_ok else "MANQUANT"
         self._status_label.setText(
-            f"{self._status_message} · Licence : MVP (non vérifiée) · "
-            f"Pilotes : {self._driver_status}"
+            f"{self._status_message} · Licence : {license_text} · "
+            f"Backend USB : {backend_text} · Pilotes : {self._driver_status}"
         )
 
     def _set_status_message(self, message: str) -> None:
@@ -172,6 +190,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_scan_clicked(self) -> None:
+        if not self._backend_ok:
+            return
         if self._thread is not None and self._thread.isRunning():
             return
 
@@ -204,7 +224,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_scan_error(self, error: object) -> None:
-        message = error.message if isinstance(error, OperationError) else str(error)
+        message = error.message if isinstance(error, OperationFailure) else str(error)
         self._set_status_message(f"Échec du scan : {message}")
         QMessageBox.warning(self, "Scan des appareils", f"Échec du scan : {message}")
 

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 from pathlib import Path
 
-__all__ = ["check_drivers", "open_installer_script"]
+__all__ = ["check_backend", "check_drivers", "get_backend_path", "open_installer_script"]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,8 +35,34 @@ if ($qualcomm) { 'QUALCOMM_9008' }
 """
 
 
+def _backend_candidates() -> list[Path]:
+    cwd = Path.cwd()
+    try:
+        python_dir = Path(sys.executable).resolve().parent
+    except OSError:
+        python_dir = cwd
+    return [
+        cwd / "libusb-1.0.dll",
+        cwd / "drivers" / "libusb-1.0.dll",
+        python_dir / "libusb-1.0.dll",
+    ]
+
+
+def get_backend_path() -> Path | None:
+    """Retourne le premier libusb-1.0.dll trouvé, ou None."""
+    for candidate in _backend_candidates():
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def check_backend() -> bool:
+    """Vérifie la présence de libusb-1.0.dll, sans appel réseau."""
+    return get_backend_path() is not None
+
+
 def check_drivers() -> dict[str, bool]:
-    """Retourne la présence des pilotes MediaTek VCOM et Qualcomm 9008."""
+    """Retourne la présence des pilotes MediaTek VCOM, Qualcomm 9008 et du backend."""
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_QUERY],
@@ -49,12 +76,17 @@ def check_drivers() -> dict[str, bool]:
             "driver_check_failed",
             extra={"event": "driver_check_failed", "payload": {"error": str(exc)}},
         )
-        return {"mtk_vcom": False, "qualcomm_9008": False}
+        return {
+            "mtk_vcom": False,
+            "qualcomm_9008": False,
+            "libusb_backend": check_backend(),
+        }
 
     output = (result.stdout or "").upper()
     return {
         "mtk_vcom": _MTK_MARKER in output,
         "qualcomm_9008": _QUALCOMM_MARKER in output,
+        "libusb_backend": check_backend(),
     }
 
 

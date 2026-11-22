@@ -5,8 +5,8 @@ from typing import Any
 import pytest
 import usb.core
 
-from src.adapters.usb import OperationError, detect_devices
-from src.core.types import ChipsetType, ConnectionMode, DeviceInfo
+from src.adapters.usb import detect_devices
+from src.core.types import ChipsetType, ConnectionMode, DeviceInfo, OperationFailure
 
 
 class FakeDevice:
@@ -84,16 +84,30 @@ def test_detect_filters_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [item.chipset for item in detected] == [ChipsetType.MTK, ChipsetType.QUALCOMM]
 
 
-def test_usb_error_raises_operation_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_usb_error_raises_operation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(**_kwargs: Any) -> None:
         raise usb.core.USBError("boom")
 
     monkeypatch.setattr(usb.core, "find", boom)
 
-    with pytest.raises(OperationError) as excinfo:
+    with pytest.raises(OperationFailure) as excinfo:
         detect_devices()
 
-    assert excinfo.value.code == "USB_ENUM_FAILED"
+    assert excinfo.value.error.code == "USB_ENUM_FAILED"
+
+
+def test_no_backend_raises_operation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(**_kwargs: Any) -> None:
+        raise usb.core.NoBackendError("No backend available")
+
+    monkeypatch.setattr(usb.core, "find", boom)
+
+    with pytest.raises(OperationFailure) as excinfo:
+        detect_devices()
+
+    assert excinfo.value.error.code == "USB_BACKEND_MISSING"
+    assert "libusb-1.0.dll" in excinfo.value.error.message
+    assert excinfo.value.error.detail == "No backend available"
 
 
 def test_serial_unavailable_is_none(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 *.egg-info/
 .eggs/
 build/
@@ -15,6 +16,7 @@ env/
 logs/
 *.raw
 optima.db
+optima.db-*
 *.db
 config.yaml
 

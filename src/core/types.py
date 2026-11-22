@@ -17,6 +17,7 @@ __all__ = [
     "ConnectionMode",
     "DeviceInfo",
     "OperationError",
+    "OperationFailure",
     "OperationResult",
     "OperationStatus",
 ]
@@ -108,20 +109,15 @@ class DeviceInfo:
 
 
 @dataclass(frozen=True)
-class OperationError(Exception):
-    """Erreur métier typée, levable et sérialisable."""
+class OperationError:
+    """Erreur métier typée, sérialisable (valeur, non exception)."""
 
     message: str
     code: str = "INTERNAL_ERROR"
     status: OperationStatus = OperationStatus.FAILED
     device_key: str | None = None
     details: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        Exception.__init__(self, self.message)
-
-    def __str__(self) -> str:
-        return f"{self.message} [{self.code}]"
+    detail: str | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -134,7 +130,31 @@ class OperationError(Exception):
             "status": self.status.value,
             "device_key": self.device_key,
             "details": dict(self.details),
+            "detail": self.detail,
         }
+
+
+class OperationFailure(Exception):
+    """Exception transportant une OperationError."""
+
+    def __init__(self, error: OperationError) -> None:
+        super().__init__(error.message)
+        self.error = error
+
+    @property
+    def code(self) -> str:
+        return self.error.code
+
+    @property
+    def message(self) -> str:
+        return self.error.message
+
+    @property
+    def detail(self) -> str | None:
+        return self.error.detail
+
+    def __str__(self) -> str:
+        return f"{self.error.message} [{self.error.code}]"
 
 
 @dataclass(frozen=True, slots=True)

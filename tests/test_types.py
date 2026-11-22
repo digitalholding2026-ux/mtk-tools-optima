@@ -5,6 +5,7 @@ from src.core.types import (
     ConnectionMode,
     DeviceInfo,
     OperationError,
+    OperationFailure,
     OperationResult,
     OperationStatus,
 )
@@ -86,3 +87,18 @@ def test_operation_result_factories() -> None:
     assert refused.status is OperationStatus.REFUSED
     assert refused.error is not None
     assert refused.error.status is OperationStatus.REFUSED
+
+
+def test_operation_failure_wraps_error() -> None:
+    error = OperationError(
+        message="boom",
+        code="USB_ENUM_FAILED",
+        detail="detail",
+    )
+    failure = OperationFailure(error)
+
+    assert failure.error is error
+    assert failure.code == "USB_ENUM_FAILED"
+    assert failure.message == "boom"
+    assert failure.detail == "detail"
+    assert str(failure) == "boom [USB_ENUM_FAILED]"

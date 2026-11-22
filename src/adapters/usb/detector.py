@@ -6,11 +6,19 @@ des descripteurs.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import usb.core
 
-from src.core.types import ChipsetType, ConnectionMode, DeviceInfo, OperationError
+from src.adapters.usb.drivers import get_backend_path
+from src.core.types import (
+    ChipsetType,
+    ConnectionMode,
+    DeviceInfo,
+    OperationError,
+    OperationFailure,
+)
 
 __all__ = ["detect_devices"]
 
@@ -20,6 +28,15 @@ QUALCOMM_VID = 0x05C6
 QUALCOMM_EDL_PID = 0x9008
 
 _USB_ENUM_FAILED = "USB_ENUM_FAILED"
+_USB_BACKEND_MISSING = "USB_BACKEND_MISSING"
+
+
+def _backend_error(exc: BaseException) -> OperationError:
+    return OperationError(
+        "Le backend libusb-1.0.dll est introuvable. Lancez scripts/install_drivers.ps1.",
+        code=_USB_BACKEND_MISSING,
+        detail=str(exc),
+    )
 
 
 def _enum_error(exc: BaseException) -> OperationError:
@@ -55,12 +72,14 @@ def _describe(device: Any) -> DeviceInfo | None:
         bus = int(device.bus)
         address = int(device.address)
     except usb.core.USBError as exc:
-        raise _enum_error(exc) from exc
+        raise OperationFailure(_enum_error(exc)) from exc
     except (AttributeError, TypeError, ValueError) as exc:
-        raise OperationError(
-            "Descripteur USB illisible.",
-            code=_USB_ENUM_FAILED,
-            details={"error": str(exc)},
+        raise OperationFailure(
+            OperationError(
+                "Descripteur USB illisible.",
+                code=_USB_ENUM_FAILED,
+                details={"error": str(exc)},
+            )
         ) from exc
 
     classification = _classify(vid, pid)
@@ -79,12 +98,26 @@ def _describe(device: Any) -> DeviceInfo | None:
     )
 
 
+def _ensure_backend_on_path() -> None:
+    backend = get_backend_path()
+    if backend is None:
+        return
+    directory = str(backend.parent)
+    current = os.environ.get("PATH", "")
+    if directory not in current.split(os.pathsep):
+        os.environ["PATH"] = directory + os.pathsep + current
+
+
 def detect_devices() -> list[DeviceInfo]:
     """Énumère les appareils MediaTek et Qualcomm branchés, sans aucune écriture."""
+    _ensure_backend_on_path()
+
     try:
         candidates = usb.core.find(find_all=True)
+    except usb.core.NoBackendError as exc:
+        raise OperationFailure(_backend_error(exc)) from exc
     except usb.core.USBError as exc:
-        raise _enum_error(exc) from exc
+        raise OperationFailure(_enum_error(exc)) from exc
 
     if candidates is None:
         return []
@@ -95,7 +128,9 @@ def detect_devices() -> list[DeviceInfo]:
             info = _describe(device)
             if info is not None:
                 devices.append(info)
+    except usb.core.NoBackendError as exc:
+        raise OperationFailure(_backend_error(exc)) from exc
     except usb.core.USBError as exc:
-        raise _enum_error(exc) from exc
+        raise OperationFailure(_enum_error(exc)) from exc
 
     return devices
