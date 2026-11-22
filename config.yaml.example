@@ -1,0 +1,22 @@
+# Exemple de configuration Optima Flash.
+# Copier ce fichier en « config.yaml », puis décommenter et adapter les clés.
+# Les chemins relatifs sont résolus à partir du dossier du fichier de configuration.
+# Aucun secret ne doit être placé dans ce fichier.
+
+# binaries:
+#   # Exécutable mtkclient (GPLv3), appelé en sous-processus uniquement.
+#   mtkclient_path: "bin/mtkclient"
+#   # Exécutable edl (GPLv3), appelé en sous-processus uniquement.
+#   edl_path: "bin/edl"
+#
+# paths:
+#   # Journaux applicatifs JSON.
+#   logs_dir: "logs"
+#   # Sorties brutes des sous-processus (fichiers .raw).
+#   raw_dir: "logs/raw"
+#   # Base SQLite locale (journal d'audit).
+#   db_path: "data/optima.db"
+#
+# ui:
+#   # Thème de l'interface : "dark", "light" ou "system".
+#   theme: "dark"
